@@ -2912,11 +2912,14 @@ async function runAnalyze() {
           analysis.strategyAnalysis.artTags = artSummary;
 
           // Multi-dim flavor theme analysis (name + subtype + token + art + flavor_text)
+          // Only surface flavor themes with a real footprint — totalScore < 10
+          // is typically 1-2 tangential hits (e.g. one Knight in a non-knight
+          // deck) and feels noisy. Still cap at top 3 so output stays compact.
           const flavorResults = analyzeDeckFlavor(
             analysis._raw.cards,
             analysis._raw.commanderCards,
             artIndex
-          ).slice(0, 3);
+          ).filter(fr => fr.totalScore >= 10).slice(0, 3);
 
           // Tribal overlap — multi-signal per tribe, ≥10 qualifies, top 3
           const tribalOverlap = analyzeTribalOverlap(
