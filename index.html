@@ -481,6 +481,26 @@ function parseDecklist(text) {
     do { prev = s; s = stripOne(s); } while (prev !== s);
     return s;
   };
+  // Extract "(SET) collector_number" from the captured rest-of-line so we can
+  // ask Scryfall for the exact printing the user wrote down (correct card
+  // art). Trailing foil/etched flags are skipped first; what remains that
+  // looks like " (SET) NNN" gets pulled out. Collector numbers can include
+  // letters, dashes, ★ (e.g. "DDS-58", "1534★").
+  const extractPrinting = (rest) => {
+    let s = rest;
+    // Peel flags off the right (they're between the collector and nothing)
+    let peeled = '';
+    const flagRe = /\s*(\*[A-Za-z]+\*|\[[^\]]+\])\s*$/;
+    while (flagRe.test(s)) { s = s.replace(flagRe, ''); peeled = ' (flags)'; }
+    const m = /^(.+?)\s+\(([A-Za-z0-9]+)\)(?:\s+([A-Za-z0-9\-★']+))?\s*$/.exec(s);
+    if (!m) return { name: stripTrailers(rest).replace(/\s+/g, ' ').trim(), setCode: null, cn: null };
+    return {
+      name: m[1].replace(/\s+/g, ' ').trim(),
+      setCode: m[2].toLowerCase(),
+      cn: m[3] || null,
+    };
+  };
+
   // Section headers: Moxfield/Archidekt write "Commander\n...". ManaBox writes
   // "// COMMANDER\n..." with `//` prefix. Either form is accepted.
   const sectionHeaders = [
@@ -508,13 +528,20 @@ function parseDecklist(text) {
     const m = qtyRe.exec(line);
     if (!m) continue;
     const qty = parseInt(m[1], 10);
-    const name = stripTrailers(m[2]).replace(/\s+/g, ' ').trim();
-    if (qty > 0 && name) sections[cur].push({ qty, name });
+    const { name, setCode, cn } = extractPrinting(m[2]);
+    if (qty > 0 && name) sections[cur].push({ qty, name, setCode, cn });
   }
   const merge = (arr) => {
+    // Keep entries distinct when printing differs so set/cn survives merging.
+    // Same name+printing get their qty added.
     const by = new Map();
-    for (const { qty, name } of arr) by.set(name, (by.get(name) || 0) + qty);
-    return [...by.entries()].map(([name, qty]) => ({ name, qty }));
+    for (const entry of arr) {
+      const key = `${entry.name}|${entry.setCode || ''}|${entry.cn || ''}`;
+      const prev = by.get(key);
+      if (prev) prev.qty += entry.qty;
+      else by.set(key, { ...entry });
+    }
+    return [...by.values()];
   };
   return { main: merge(sections.main), commander: merge(sections.commander) };
 }
@@ -548,6 +575,8 @@ function moxfieldToList(json) {
       name,
       qty: entry.quantity || 1,
       scryfallId: entry.card?.scryfall_id || null,
+      setCode: entry.card?.set?.toLowerCase() || null,
+      cn: entry.card?.cn || null,
     }));
   };
   return {
@@ -558,17 +587,21 @@ function moxfieldToList(json) {
 }
 
 /* ================== SCRYFALL ================== */
-// v2 bumps key so entries cached under old "name-only" shape (which could
-// return wrong printings) get re-fetched with proper per-printing resolution.
-const CACHE_KEY = 'mtg_analyzer_card_cache_v2';
+// v3 bumps key again so old v2 entries that were cached under "name:..." for
+// entries that actually had a specific printing get re-fetched.
+const CACHE_KEY = 'mtg_analyzer_card_cache_v3';
 const loadCache = () => { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch { return {}; } };
 const saveCache = (c) => localStorage.setItem(CACHE_KEY, JSON.stringify(c));
 
-// Cache key: prefer the specific printing (scryfall_id) so different art/sets
-// of the same-named card don't clobber each other. Fall back to "name:<lc>"
-// when the entry came from pasted text without a Scryfall id.
-const cacheKeyFor = (entry) =>
-  entry.scryfallId ? `id:${entry.scryfallId}` : `name:${entry.name.toLowerCase()}`;
+// Cache key: prefer the specific printing (scryfall_id > set+collector) so
+// different art/sets of the same-named card don't clobber each other. Fall
+// back to "name:<lc>" when the entry came from pasted text without any
+// printing info.
+const cacheKeyFor = (entry) => {
+  if (entry.scryfallId) return `id:${entry.scryfallId}`;
+  if (entry.setCode && entry.cn) return `sc:${entry.setCode}/${entry.cn}`;
+  return `name:${entry.name.toLowerCase()}`;
+};
 
 async function resolveCards(list) {
   const cache = loadCache();
@@ -590,9 +623,14 @@ async function resolveCards(list) {
   for (let bi = 0; bi < batches.length; bi++) {
     const batch = batches[bi];
     setStatus(`查詢 Scryfall... ${bi + 1}/${batches.length} 批（每批最多 75 張）`, 'info');
-    // Use {id: scryfall_id} for entries Moxfield gave us an id for (exact
-    // printing), else fall back to {name} (default printing).
-    const identifiers = batch.map(x => x.scryfallId ? { id: x.scryfallId } : { name: x.name });
+    // Identifier priority: exact scryfall_id > set+collector_number > name.
+    // The first two give the exact printing the user specified; name-only
+    // falls back to Scryfall's default printing (fine for hand-typed lists).
+    const identifiers = batch.map(x => {
+      if (x.scryfallId) return { id: x.scryfallId };
+      if (x.setCode && x.cn) return { set: x.setCode, collector_number: x.cn };
+      return { name: x.name };
+    });
     const res = await fetch('https://api.scryfall.com/cards/collection', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -601,10 +639,12 @@ async function resolveCards(list) {
     if (!res.ok) throw new Error(`Scryfall ${res.status}`);
     const data = await res.json();
     for (const c of (data.data || [])) {
-      // Match back to the original batch entry by scryfall_id first, then by name.
+      // Match back to the original batch entry. Priority: scryfall_id >
+      // set+collector_number > name. Name-match allows DFC front half too.
       const orig = batch.find(x =>
         (x.scryfallId && x.scryfallId === c.id) ||
-        (!x.scryfallId && (
+        (x.setCode && x.cn && x.setCode === c.set && x.cn === c.collector_number) ||
+        (!x.scryfallId && !x.setCode && (
           x.name.toLowerCase() === c.name.toLowerCase() ||
           c.name.toLowerCase().startsWith(x.name.toLowerCase() + ' //')
         ))
