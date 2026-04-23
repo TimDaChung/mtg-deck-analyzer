@@ -100,7 +100,17 @@
 
   .grid { display: grid; gap: 14px; grid-template-columns: 2fr 1fr; margin-bottom: 14px; }
   .grid-3 { display: grid; gap: 14px; grid-template-columns: 1fr 1fr 1fr; margin-bottom: 14px; }
-  @media (max-width: 860px) { .grid, .grid-3 { grid-template-columns: 1fr; } }
+  @media (max-width: 860px) {
+    .grid, .grid-3 { grid-template-columns: 1fr; }
+    /* Collapse any panel-local inline grid (e.g. goldfish chart+summary which
+       sets 3fr 2fr inline) so mobile doesn't overflow horizontally. */
+    .panel > [style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+    body { padding: 12px; }
+    .panel { padding: 14px; }
+    /* Stats / card-list links can wrap onto multiple lines instead of
+       forcing horizontal scroll. */
+    .stat { flex-wrap: wrap; }
+  }
 
   .panel {
     background: var(--bg-2); border: 1px solid var(--border);
@@ -2449,7 +2459,12 @@ function renderStrategyPanel(analysis) {
   const content = $('strategyContent');
   const hasCombos = (pl?.detectedCombos?.length || 0) + (pl?.partialCombos?.length || 0) > 0;
   const hasStrategy = sa.keywords.length + sa.tribal.length + (sa.edhrecThemesRanked?.length || 0) > 0;
-  if (!hasCombos && !hasStrategy) { panel.style.display = 'none'; return; }
+  // Commander decks always show the panel: async enrichment populates
+  // edhrecThemes/flavorThemes/tribalOverlap later, so hiding here makes the
+  // panel flash in only after EDHREC finishes — and on mobile users often
+  // miss that reveal and think the whole section is gone.
+  const mustShow = hasCombos || hasStrategy || (sa.commanderNames?.length > 0);
+  if (!mustShow) { panel.style.display = 'none'; return; }
   panel.style.display = '';
 
   const sections = [];
