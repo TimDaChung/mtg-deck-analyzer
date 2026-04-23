@@ -451,20 +451,34 @@ async function handleFile(file) {
 function parseDecklist(text) {
   const lines = text.split(/\r?\n/);
   const sections = { main: [], commander: [], sideboard: [], maybe: [], companion: [] };
-  const lineRe = /^\s*(?:SB:\s*)?(\d+)x?\s+(.+?)(?:\s*\(([A-Z0-9]+)\)(?:\s+\S+)?)?\s*$/i;
+  // Capture "{qty} {rest-of-line}"; printing/flag metadata is stripped later.
+  const qtyRe = /^\s*(?:SB:\s*)?(\d+)x?\s+(.+?)\s*$/;
+  // Peel any trailing "(SET) collector", "*F*"/"*E*"/..., or "[foil]" tokens
+  // from the right in any order. Iterate until stable to handle combinations
+  // like `(MIR) 311 *F* *E*`. Previous single-pass regex let .+? swallow the
+  // whole trailer into the name, silently breaking ~all foil printings.
+  const stripOne = (s) => s
+    .replace(/\s*\*[A-Za-z]+\*\s*$/, '')          // *F*, *E*, *G*
+    .replace(/\s*\[[^\]]+\]\s*$/, '')              // [foil], [etched]
+    .replace(/\s*\([A-Za-z0-9]+\)(?:\s+\S+)?\s*$/, ''); // (SET) [collector]
+  const stripTrailers = (s) => {
+    let prev;
+    do { prev = s; s = stripOne(s); } while (prev !== s);
+    return s;
+  };
   let cur = 'main';
   for (const raw of lines) {
     const line = raw.trim();
     if (!line || line.startsWith('//') || /^name:/i.test(line) || /^about\b/i.test(line)) continue;
-    if (/^deck\b/i.test(line)) { cur = 'main'; continue; }
+    if (/^(?:deck|mainboard)\b/i.test(line)) { cur = 'main'; continue; }
     if (/^commander\b/i.test(line)) { cur = 'commander'; continue; }
     if (/^sideboard\b/i.test(line)) { cur = 'sideboard'; continue; }
     if (/^companion\b/i.test(line)) { cur = 'companion'; continue; }
     if (/^maybeboard\b/i.test(line)) { cur = 'maybe'; continue; }
-    const m = lineRe.exec(line);
+    const m = qtyRe.exec(line);
     if (!m) continue;
     const qty = parseInt(m[1], 10);
-    const name = m[2].replace(/\s+/g, ' ').trim();
+    const name = stripTrailers(m[2]).replace(/\s+/g, ' ').trim();
     if (qty > 0 && name) sections[cur].push({ qty, name });
   }
   const merge = (arr) => {
