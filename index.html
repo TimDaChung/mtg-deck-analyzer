@@ -2916,6 +2916,33 @@ async function runAnalyze() {
       resolveCards([...mainList, ...commanderList]),
       fetchGameChangers(),
     ]);
+
+    // Reclassify the commander zone: only Legendary Creatures / Planeswalkers
+    // / Backgrounds are real commanders. Some exports (ManaBox flat-paste) put
+    // "// COMMANDER" at the top without a matching "// DECK" below, so the
+    // parser ends up with the whole 100 cards in commander[]. Validate via
+    // type_line and spill everything else back into main.
+    if (commanderList.length > 0) {
+      const isCmdType = (tl) => /Legendary\s+(?:Creature|Planeswalker)|Background/i.test(tl || '');
+      const keptCmd = [];
+      const spilled = [];
+      for (const entry of commanderList) {
+        const card = resolved[entry.name];
+        const tl = card?.type_line || '';
+        if (isCmdType(tl) && keptCmd.length < 2) keptCmd.push(entry);
+        else spilled.push(entry);
+      }
+      if (spilled.length) {
+        const mainByName = new Map(mainList.map(e => [e.name, e]));
+        for (const e of spilled) {
+          const prev = mainByName.get(e.name);
+          if (prev) prev.qty += e.qty;
+          else { mainByName.set(e.name, { ...e }); mainList.push(mainByName.get(e.name)); }
+        }
+      }
+      commanderList = keptCmd;
+    }
+
     const analysis = analyzeDeck(mainList, resolved, commanderList, gameChangers);
     if (analysis._raw.cards.length === 0 && analysis._raw.commanderCards.length === 0) {
       throw new Error('沒有任何卡成功查到資料');
