@@ -493,7 +493,11 @@ function parseDecklist(text) {
   let cur = 'main';
   for (const raw of lines) {
     const line = raw.trim();
-    if (!line || /^name:/i.test(line) || /^about\b/i.test(line)) continue;
+    // Blank line acts as a section divider when we're in a non-main zone —
+    // ManaBox writes "// COMMANDER\n1 Rin...\n\n1 Sol Ring..." with no
+    // explicit "// DECK" header, relying on the blank to close commander.
+    if (!line) { if (cur !== 'main') cur = 'main'; continue; }
+    if (/^name:/i.test(line) || /^about\b/i.test(line)) continue;
     let matched = false;
     for (const [re, sec] of sectionHeaders) {
       if (re.test(line)) { cur = sec; matched = true; break; }
