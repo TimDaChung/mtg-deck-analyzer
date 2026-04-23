@@ -299,7 +299,7 @@
       <div class="power-right">
         <div class="power-right-label">計分訊號</div>
         <div id="powerSignals"></div>
-        <div class="power-disclaimer" id="powerDisclaimer">基線 4.0 + signal heuristic：fast mana / tutor / counter / free interaction / combo piece / <strong>Game Changer（WOTC 官方名單，即時抓 Scryfall）</strong> / 平均 CMC / 加速密度 / 完整 combo（2 卡、3+ 卡分權重）。Bracket 對齊 WOTC 2024 Commander Bracket System（B1–B5），硬規則優先於分數。</div>
+        <div class="power-disclaimer" id="powerDisclaimer">基線 2.0 + signal heuristic：fast mana / tutor / counter / free interaction / combo piece / <strong>Game Changer（WOTC 官方名單，即時抓 Scryfall）</strong> / 平均 CMC / 加速密度 / 完整 combo（2 卡、3+ 卡分權重）。Bracket 對齊 WOTC 2024 Commander Bracket System（B1–B5），硬規則優先於分數。</div>
       </div>
     </div>
 
@@ -1738,7 +1738,10 @@ function analyzeDeck(list, resolved, commanderList = [], gameChangers = new Set(
   strategyAnalysis.archetypes = archetypes;
 
   // ==== POWER LEVEL ESTIMATE ====
-  // Baseline 4 ("upgraded casual"); signals push up/down. Clamp to [1, 10].
+  // Baseline 2 ("kitchen-table, no signals"); signals push up/down. Clamp [1,10].
+  // Low baseline means a deck with ~no detectable signals stays at B1. Signal
+  // weights are tuned so a lightly-upgraded precon lands in B2 (~3.5-4.5) and
+  // a typical upgraded list lands in B3 (~5-6).
   const nameSet = new Map(); // lowercased name → qty
   for (const { qty, card } of cards) nameSet.set(card.name.toLowerCase(), qty);
   const countFromSet = (set) => {
@@ -1750,7 +1753,7 @@ function analyzeDeck(list, resolved, commanderList = [], gameChangers = new Set(
     return { n, hits };
   };
 
-  let power = 4.0;
+  let power = 2.0;
   const powerSignals = [];
   const addSignal = (msg, delta) => {
     power += delta;
@@ -1758,71 +1761,71 @@ function analyzeDeck(list, resolved, commanderList = [], gameChangers = new Set(
   };
 
   const fm = countFromSet(FAST_MANA);
-  if (fm.n >= 5) addSignal(`${fm.n} 張 fast mana`, +2.0);
-  else if (fm.n >= 3) addSignal(`${fm.n} 張 fast mana`, +1.5);
-  else if (fm.n >= 1) addSignal(`${fm.n} 張 fast mana`, +0.5);
+  if (fm.n >= 5) addSignal(`${fm.n} 張 fast mana`, +2.5);
+  else if (fm.n >= 3) addSignal(`${fm.n} 張 fast mana`, +2.0);
+  else if (fm.n >= 1) addSignal(`${fm.n} 張 fast mana`, +1.0);
 
   const tutorN = funcCounts.tutor;
-  if (tutorN >= 8) addSignal(`${tutorN} 張 tutor`, +2.0);
-  else if (tutorN >= 5) addSignal(`${tutorN} 張 tutor`, +1.0);
-  else if (tutorN >= 3) addSignal(`${tutorN} 張 tutor`, +0.5);
+  if (tutorN >= 8) addSignal(`${tutorN} 張 tutor`, +2.5);
+  else if (tutorN >= 5) addSignal(`${tutorN} 張 tutor`, +1.5);
+  else if (tutorN >= 3) addSignal(`${tutorN} 張 tutor`, +1.0);
 
   const counterN = funcCounts.counter;
-  if (counterN >= 10) addSignal(`${counterN} 張 counter（cEDH 防禦）`, +1.5);
-  else if (counterN >= 5) addSignal(`${counterN} 張 counter`, +0.5);
+  if (counterN >= 10) addSignal(`${counterN} 張 counter（cEDH 防禦）`, +2.0);
+  else if (counterN >= 5) addSignal(`${counterN} 張 counter`, +1.0);
 
   const fi = countFromSet(FREE_INTERACTION);
-  if (fi.n >= 3) addSignal(`${fi.n} 張免費 interaction (FoW/FoN 等)`, +1.5);
-  else if (fi.n >= 1) addSignal(`${fi.n} 張免費 interaction`, +0.75);
+  if (fi.n >= 3) addSignal(`${fi.n} 張免費 interaction (FoW/FoN 等)`, +2.0);
+  else if (fi.n >= 1) addSignal(`${fi.n} 張免費 interaction`, +1.0);
 
   const combo = countFromSet(COMBO_PIECES);
-  if (combo.n >= 3) addSignal(`${combo.n} 張 combo piece`, +1.5);
-  else if (combo.n >= 2) addSignal(`${combo.n} 張 combo piece`, +1.0);
-  else if (combo.n >= 1) addSignal(`${combo.n} 張 combo piece`, +0.5);
+  if (combo.n >= 3) addSignal(`${combo.n} 張 combo piece`, +2.0);
+  else if (combo.n >= 2) addSignal(`${combo.n} 張 combo piece`, +1.5);
+  else if (combo.n >= 1) addSignal(`${combo.n} 張 combo piece`, +0.75);
 
   // Game Changer count — WOTC's official 40-ish card list (Commander Bracket
   // System). Multiple GCs is the cleanest signal that a deck is pushing past
   // B3 into optimised territory.
   const gc = countFromSet(gameChangers);
   const gcPreview = gc.hits.slice(0, 3).join(', ') + (gc.hits.length > 3 ? '…' : '');
-  if (gc.n >= 4) addSignal(`${gc.n} 張 Game Changer: ${gcPreview}`, +2.0);
-  else if (gc.n === 3) addSignal(`3 張 Game Changer: ${gcPreview}`, +1.5);
-  else if (gc.n === 2) addSignal(`2 張 Game Changer: ${gcPreview}`, +1.0);
-  else if (gc.n === 1) addSignal(`1 張 Game Changer: ${gc.hits[0]}`, +0.5);
+  if (gc.n >= 4) addSignal(`${gc.n} 張 Game Changer: ${gcPreview}`, +2.5);
+  else if (gc.n === 3) addSignal(`3 張 Game Changer: ${gcPreview}`, +2.0);
+  else if (gc.n === 2) addSignal(`2 張 Game Changer: ${gcPreview}`, +1.5);
+  else if (gc.n === 1) addSignal(`1 張 Game Changer: ${gc.hits[0]}`, +0.75);
 
-  if (avgCmc <= 2.0) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（極快）`, +1.0);
-  else if (avgCmc <= 2.5) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（快）`, +0.5);
-  else if (avgCmc >= 4.5) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（偏慢）`, -1.0);
-  else if (avgCmc >= 3.8) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（略慢）`, -0.5);
+  if (avgCmc <= 2.0) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（極快）`, +1.5);
+  else if (avgCmc <= 2.5) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（快）`, +1.0);
+  else if (avgCmc >= 4.5) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（偏慢）`, -1.5);
+  else if (avgCmc >= 3.8) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（略慢）`, -0.75);
 
   const rocksAndDorks = funcCounts.mana_rock + funcCounts.mana_dork;
-  if (rocksAndDorks >= 10) addSignal(`${rocksAndDorks} 張加速生物/法器`, +0.5);
+  if (rocksAndDorks >= 10) addSignal(`${rocksAndDorks} 張加速生物/法器`, +0.75);
 
   // Complete combos — differentiate 2-piece vs 3+ piece (3+ is stricter
   // setup but often more explosive when it lands).
   if (detectedCombos.length >= 1) {
     const twoPc = detectedCombos.filter(c => c.pieces.length <= 2).length;
     const multiPc = detectedCombos.filter(c => c.pieces.length >= 3).length;
-    if (twoPc) addSignal(`${twoPc} 個 2 卡 combo pair`, twoPc * 0.9);
-    if (multiPc) addSignal(`${multiPc} 個 3+ 卡 combo line`, multiPc * 1.1);
+    if (twoPc) addSignal(`${twoPc} 個 2 卡 combo pair`, twoPc * 1.2);
+    if (multiPc) addSignal(`${multiPc} 個 3+ 卡 combo line`, multiPc * 1.5);
   }
 
   power = Math.max(1, Math.min(10, power));
 
   // WOTC Commander Bracket mapping (2024 official). Hard rules take priority
-  // over raw score:
+  // over raw score. Thresholds calibrated with baseline 2.0:
   //   B5 cEDH       — tuned, loaded with GC + complete combos
-  //   B4 Optimized  — complete combos, or 4+ Game Changers, or score ≥ 7.5
-  //   B3 Upgraded   — some GC / high power staples, score ≥ 5.5
-  //   B2 Core       — casual, score ≥ 3.5
-  //   B1 Exhibition — precon / kitchen table
+  //   B4 Optimized  — complete combos, or 4+ Game Changers, or score ≥ 7.0
+  //   B3 Upgraded   — some GC / high power staples, score ≥ 5.0
+  //   B2 Core       — casual / precon-level, score ≥ 3.0
+  //   B1 Exhibition — kitchen table (no detectable signals → baseline 2.0)
   const completeComboN = detectedCombos.length;
   const gcN = gc.n;
   let bracket;
   if (power >= 8.5 && completeComboN >= 1 && gcN >= 3) bracket = { n: 5, name: 'cEDH' };
-  else if (completeComboN >= 1 || gcN >= 4 || power >= 7.5)         bracket = { n: 4, name: 'Optimized' };
-  else if (gcN >= 1 || power >= 5.5)                                 bracket = { n: 3, name: 'Upgraded' };
-  else if (power >= 3.5)                                             bracket = { n: 2, name: 'Core' };
+  else if (completeComboN >= 1 || gcN >= 4 || power >= 7.0)         bracket = { n: 4, name: 'Optimized' };
+  else if (gcN >= 1 || power >= 5.0)                                 bracket = { n: 3, name: 'Upgraded' };
+  else if (power >= 3.0)                                             bracket = { n: 2, name: 'Core' };
   else                                                               bracket = { n: 1, name: 'Exhibition' };
   const band = `B${bracket.n} · ${bracket.name}`;
 
