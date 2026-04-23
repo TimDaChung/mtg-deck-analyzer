@@ -101,6 +101,9 @@
   .grid { display: grid; gap: 14px; grid-template-columns: 2fr 1fr; margin-bottom: 14px; }
   .grid-3 { display: grid; gap: 14px; grid-template-columns: 1fr 1fr 1fr; margin-bottom: 14px; }
   @media (max-width: 860px) {
+    /* Hard-cap horizontal overflow on mobile — we never want a sideways
+       scroll, content that can't fit should wrap or clip. */
+    html, body { overflow-x: hidden; }
     .grid, .grid-3 { grid-template-columns: 1fr; }
     /* Collapse any panel-local inline grid (e.g. goldfish chart+summary which
        sets 3fr 2fr inline) so mobile doesn't overflow horizontally. */
@@ -110,6 +113,9 @@
     /* Stats / card-list links can wrap onto multiple lines instead of
        forcing horizontal scroll. */
     .stat { flex-wrap: wrap; }
+    /* quickNav slightly smaller + inset further on mobile */
+    #quickNav { right: 12px; bottom: 12px; }
+    #quickNav .qn-toggle { width: 44px; height: 44px; font-size: 16px; }
   }
 
   .panel {
@@ -234,6 +240,39 @@
   .power-signal .delta.up { color: var(--ok); }
   .power-signal .delta.down { color: var(--danger); }
   .power-disclaimer { font-size: 10px; color: var(--text-dim); margin-top: 10px; font-style: italic; }
+  /* async loading skeleton inside the strategy panel */
+  .skeleton-row {
+    height: 58px; border-radius: 6px; margin-bottom: 10px;
+    background: linear-gradient(90deg, var(--bg-3) 0%, var(--bg-2) 50%, var(--bg-3) 100%);
+    background-size: 200% 100%;
+    animation: skel-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes skel-pulse {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  /* floating quick nav */
+  html { scroll-behavior: smooth; }
+  #quickNav { position: fixed; right: 16px; bottom: 16px; z-index: 100; text-align: right; }
+  #quickNav .qn-toggle {
+    width: 48px; height: 48px; border-radius: 24px;
+    background: var(--gold); color: var(--bg); border: none;
+    font-size: 18px; font-weight: 700; cursor: pointer; font-family: inherit;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.55);
+  }
+  #quickNav .qn-list {
+    display: none;
+    list-style: none; margin: 0 0 8px 0; padding: 6px;
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: 8px; min-width: 150px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.55);
+  }
+  #quickNav.open .qn-list { display: block; }
+  #quickNav .qn-list a {
+    display: block; padding: 8px 12px; color: var(--text);
+    text-decoration: none; font-size: 13px; border-radius: 4px;
+  }
+  #quickNav .qn-list a:hover { background: var(--bg-3); color: var(--gold); }
   .mv-sugg { display: inline-block; padding: 2px 0; }
   .mv-sugg.mv-hidden { display: none; }
   .mv-sugg-list.mv-expanded .mv-sugg.mv-hidden { display: inline-block; }
@@ -313,7 +352,7 @@
       </div>
     </div>
 
-    <div class="grid">
+    <div class="grid" id="chartsGrid">
       <div class="panel">
         <h3>Mana Curve（不含地）</h3>
         <canvas id="curveChart"></canvas>
@@ -324,7 +363,7 @@
       </div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="goldfishPanel">
       <h3>Goldfish 10 回合模擬（無對手、greedy 出牌）</h3>
       <div style="display:grid;grid-template-columns:3fr 2fr;gap:14px;align-items:start;">
         <canvas id="goldfishChart" style="max-height:260px;"></canvas>
@@ -372,7 +411,7 @@
       <div id="strategyContent"></div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="cardListPanel">
       <h3>完整卡牌列表（卡名 → Scryfall；EDH → EDHREC）</h3>
       <table id="cardsTable">
         <thead><tr>
@@ -396,6 +435,18 @@
 
 <!-- Shared floating card preview -->
 <div id="cardPreview"><img alt="" loading="lazy"></div>
+
+<!-- Quick section jump. Hidden until an analysis has rendered. -->
+<nav id="quickNav" style="display:none;">
+  <ul class="qn-list">
+    <li><a href="#powerPanel">💪 Power</a></li>
+    <li><a href="#chartsGrid">📊 Mana / Chart</a></li>
+    <li><a href="#goldfishPanel">🎣 Goldfish</a></li>
+    <li><a href="#strategyPanel">⚡ 策略 / Flavor</a></li>
+    <li><a href="#cardListPanel">🃏 卡表</a></li>
+  </ul>
+  <button class="qn-toggle" type="button" aria-label="快速導航">☰</button>
+</nav>
 
 <script>
 /* ================== UTIL ================== */
@@ -2258,6 +2309,9 @@ let curveChart = null, colorChart = null, goldfishChart = null;
 
 function renderAll(analysis, deckName) {
   $('result').classList.add('visible');
+  // Quick-nav becomes relevant once the page has content to jump between.
+  const qn = document.getElementById('quickNav');
+  if (qn) qn.style.display = '';
   $('deckTitle').textContent = deckName || 'Deck';
   const ciStr = analysis.ci.length ? analysis.ci.map(c => COLOR_NAMES[c]).join('/') : '無色';
   const totalIncl = analysis.total + (analysis.commanderRows?.length || 0);
@@ -2780,6 +2834,24 @@ function renderStrategyPanel(analysis) {
   // Art tag data still collected (feeds flavor scoring +1.25) but no longer
   // rendered as its own section — flavor + tribal cover the user-facing view.
 
+  // Skeleton while EDHREC enrichment is still in flight. Only show when none
+  // of the async sections have landed yet, so combo rows already rendered
+  // from the sync phase aren't obscured.
+  const stillLoading = sa.artTagsLoading
+    && !(sa.edhrecThemesRanked?.length)
+    && !(sa.flavorThemes?.length)
+    && !(sa.tribalOverlap?.length);
+  if (stillLoading) {
+    sections.push(`<div style="margin-top:14px;">
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;">
+        ⏳ 載入 EDHREC 主題 / Flavor 分析…（第一次約 5-10 秒）
+      </div>
+      <div class="skeleton-row"></div>
+      <div class="skeleton-row"></div>
+      <div class="skeleton-row"></div>
+    </div>`);
+  }
+
   content.innerHTML = sections.join('<hr style="border:0;border-top:1px solid var(--border);margin:14px 0;">');
 }
 
@@ -3239,6 +3311,26 @@ const IS_TOUCH = matchMedia('(hover: none) and (pointer: coarse)').matches;
     t.dataset.armed = '1';
     armed = t;
   }, true);
+})();
+
+/* ================== QUICK NAV ================== */
+// Floating FAB that jumps to key sections. Hidden until an analysis has run
+// (renderAll reveals it).
+(function setupQuickNav() {
+  const nav = document.getElementById('quickNav');
+  if (!nav) return;
+  const toggle = nav.querySelector('.qn-toggle');
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    nav.classList.toggle('open');
+  });
+  nav.querySelectorAll('.qn-list a').forEach(a => {
+    a.addEventListener('click', () => nav.classList.remove('open'));
+  });
+  // Close on outside tap
+  document.addEventListener('click', (e) => {
+    if (!nav.contains(e.target)) nav.classList.remove('open');
+  });
 })();
 
 /* ================== "顯示全部 / 收起" TOGGLE ================== */
