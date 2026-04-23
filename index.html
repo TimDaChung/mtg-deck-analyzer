@@ -607,7 +607,10 @@ async function fetchGameChangers() {
 }
 
 /* ================== SCRYFALL SEARCH CACHE ================== */
-const SCRY_CACHE_KEY = 'mtg_analyzer_scry_search_v1';
+// v2 bumps key to drop any stale "{data:[]}" entries written by the old
+// fetchScrySearch failure path (a transient error would poison the cache
+// permanently, which is why flavor suggestions went empty on github.io).
+const SCRY_CACHE_KEY = 'mtg_analyzer_scry_search_v2';
 let _scryCache = null;
 function _loadScry() {
   if (_scryCache) return _scryCache;
@@ -625,9 +628,19 @@ async function fetchScrySearch(query, orderParam = '') {
   if (orderParam) url += '&' + orderParam;
   try {
     const r = await fetch(url);
-    if (!r.ok) { cache[key] = { data: [] }; _saveScry(); return cache[key]; }
+    // Only 404 is a real "no matches" answer worth caching — any other non-OK
+    // status is transient (rate limit, network blip, 5xx) and we must NOT
+    // poison the cache or the empty result sticks forever.
+    if (r.status === 404) {
+      cache[key] = { data: [] };
+      _saveScry();
+      return cache[key];
+    }
+    if (!r.ok) {
+      console.warn('fetchScrySearch transient failure', r.status, query);
+      return { data: [] };
+    }
     const j = await r.json();
-    // Compact — only fields we need
     const compact = {
       total: j.total_cards || 0,
       data: (j.data || []).slice(0, 30).map(c => ({
@@ -639,7 +652,10 @@ async function fetchScrySearch(query, orderParam = '') {
     cache[key] = compact;
     _saveScry();
     return compact;
-  } catch { return { data: [] }; }
+  } catch (e) {
+    console.warn('fetchScrySearch network error', e, query);
+    return { data: [] };
+  }
 }
 
 // === FLAVOR THEMES ===
@@ -2803,7 +2819,10 @@ document.querySelectorAll('#cardsTable th[data-sort]').forEach(th => {
 $('analyzeBtn').addEventListener('click', runAnalyze);
 $('clearCacheBtn').addEventListener('click', () => {
   localStorage.removeItem(CACHE_KEY);
-  setStatus('已清除卡牌快取。', 'info');
+  localStorage.removeItem(SCRY_CACHE_KEY);
+  localStorage.removeItem(GC_CACHE_KEY);
+  _scryCache = null;
+  setStatus('已清除所有快取（卡牌資料 / Scryfall 搜尋 / Game Changer）。', 'info');
 });
 
 async function runAnalyze() {
