@@ -2912,8 +2912,14 @@ async function runAnalyze() {
   }
 }
 
-/* ================== CARD HOVER PREVIEW ================== */
+/* ================== CARD HOVER PREVIEW (desktop) ================== */
+// hover / pointer: fine — the classic "mouse tracks cursor" preview. On touch
+// devices (hover: none) we skip hover entirely and use tap-to-preview instead
+// (see below), otherwise every tap would instantly navigate away.
+const IS_TOUCH = matchMedia('(hover: none) and (pointer: coarse)').matches;
+
 (function setupCardHover() {
+  if (IS_TOUCH) return;
   const preview = $('cardPreview');
   const img = preview.querySelector('img');
   const W = 240, H = 334, PAD = 14;
@@ -2944,12 +2950,66 @@ async function runAnalyze() {
   document.addEventListener('mouseout', (e) => {
     const t = e.target.closest('[data-card-img], [data-card-name]');
     if (!t) return;
-    // Only hide when leaving to something *not* another card target
     const rel = e.relatedTarget && e.relatedTarget.closest?.('[data-card-img], [data-card-name]');
     if (rel) return;
     currentTarget = null;
     preview.style.display = 'none';
   });
+})();
+
+/* ================== MOBILE TAP-TO-PREVIEW ================== */
+// Mobile flow: first tap on a card link shows the preview and blocks
+// navigation. Tapping the same link again lets the link fire normally. Tapping
+// anywhere else closes the preview and disarms. Non-anchor card elements
+// (spans like combo pieces) just toggle the preview.
+(function setupMobileTap() {
+  if (!IS_TOUCH) return;
+  const preview = $('cardPreview');
+  const img = preview.querySelector('img');
+  let armed = null;
+
+  function showCentered(src) {
+    img.src = src;
+    const W = 240, H = 334;
+    preview.style.left = Math.max(10, (window.innerWidth - W) / 2) + 'px';
+    preview.style.top = Math.max(10, window.innerHeight * 0.18) + 'px';
+    preview.style.display = 'block';
+  }
+  function hide() {
+    preview.style.display = 'none';
+    if (armed) { delete armed.dataset.armed; armed = null; }
+  }
+
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-card-img], [data-card-name]');
+    const tappedPreview = e.target.closest('#cardPreview');
+    if (tappedPreview) return; // preview has pointer-events:none, but be safe
+    if (!t) { hide(); return; }
+
+    const imgUrl = t.dataset.cardImg
+      || `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(t.dataset.cardName || '')}&format=image&version=normal`;
+    const isLink = t.tagName === 'A' && t.getAttribute('href');
+
+    if (!isLink) {
+      // Plain data-card spans: no navigation, just toggle preview in place.
+      if (armed === t) hide();
+      else {
+        if (armed) delete armed.dataset.armed;
+        showCentered(imgUrl);
+        t.dataset.armed = '1';
+        armed = t;
+      }
+      return;
+    }
+
+    // Link: first tap previews, second tap navigates.
+    if (t.dataset.armed === '1') return; // let the link fire
+    e.preventDefault();
+    if (armed && armed !== t) delete armed.dataset.armed;
+    showCentered(imgUrl);
+    t.dataset.armed = '1';
+    armed = t;
+  }, true);
 })();
 
 /* ================== "顯示全部 / 收起" TOGGLE ================== */
