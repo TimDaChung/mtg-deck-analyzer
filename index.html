@@ -737,7 +737,7 @@ async function fetchScrySearch(query, orderParam = '') {
     const j = await r.json();
     const compact = {
       total: j.total_cards || 0,
-      data: (j.data || []).slice(0, 30).map(c => ({
+      data: (j.data || []).slice(0, 100).map(c => ({
         name: c.name,
         rank: c.edhrec_rank || 999999,
         imgUrl: c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || '',
@@ -897,18 +897,41 @@ function analyzeTribalOverlap(cards, commanders, minQty = 10) {
   return out.slice(0, 3);
 }
 
-async function fetchFlavorSuggestions(theme, colorIdentity, existingKeys, inclusionMap = null, limit = 60) {
-  // Subtype-first: when a creature subtype exists it's the strongest signal, so
-  // query on it alone. Only fall back to token/name for themes without a
-  // subtype (e.g. Treasure). atag is excluded — it's too broad for suggestions
-  // (atag:ocean pulls every island, atag:ship pulls generic lands/staples) and
-  // combined with order=edhrec it floods the result with color-pie staples.
+// Art tags tight enough to trust as a standalone signal. Environment tags
+// like "ocean" / "ship" pull too many staples (islands, lands) and are
+// intentionally skipped even if the theme lists them.
+const NARROW_ARTTAGS = new Set([
+  'shark', 'dragon', 'angel', 'demon', 'vampire', 'zombie', 'skeleton',
+  'cat', 'dog', 'wolf', 'phyrexian', 'phoenix', 'knight', 'pirate',
+  'eye', 'goblin', 'elf', 'spirit', 'ooze', 'merfolk', 'bird', 'snake',
+]);
+
+async function fetchFlavorSuggestions(theme, colorIdentity, existingKeys, inclusionMap = null, limit = 80) {
+  // Broad multi-signal query: subtype creatures, name-matching spells, token
+  // creators, flavor-text references, and species-tight art tags. The goal is
+  // to surface non-creature flavor hits (Shark Typhoon, token generators,
+  // Secret Lair reprints, etc.) that subtype-only missed. EDHREC inclusion
+  // still re-ranks results so "what this commander's players actually play"
+  // rises to the top.
+  //
+  // Only the primary tribe name (subtype or tokenType) is used as the
+  // name/flavor-text seed. Generic flavorWords like "devour" / "fin" match
+  // thousands of unrelated cards when dropped into `ft:`, so they're kept
+  // for local scoring only, not the Scryfall query.
+  const seeds = [];
+  if (theme.subtypes.length) seeds.push(theme.subtypes[0]);
+  else if (theme.tokenTypes.length) seeds.push(theme.tokenTypes[0]);
+  else if (theme.nameWords.length) seeds.push(theme.nameWords[0]);
   const parts = [];
-  if (theme.subtypes.length) {
-    for (const sub of theme.subtypes) parts.push(`t:${sub.toLowerCase().replace(/\s+/g, '+')}`);
-  } else {
-    for (const tt of theme.tokenTypes) parts.push(`o:"${tt.toLowerCase()} token"`);
-    for (const nw of theme.nameWords) parts.push(`name:${nw.replace(/\s+/g, '')}`);
+  for (const sub of theme.subtypes) parts.push(`t:${sub.toLowerCase().replace(/\s+/g, '+')}`);
+  for (const seed of seeds) {
+    const s = seed.toLowerCase().replace(/\s+/g, '');
+    parts.push(`name:${s}`);
+    parts.push(`ft:${s}`);
+  }
+  for (const tt of theme.tokenTypes) parts.push(`o:"${tt.toLowerCase()} token"`);
+  for (const at of theme.artTags || []) {
+    if (NARROW_ARTTAGS.has(at)) parts.push(`atag:${at}`);
   }
   if (parts.length === 0) return [];
   const ci = colorIdentity.length ? ` id<=${colorIdentity.join('').toLowerCase()}` : '';
