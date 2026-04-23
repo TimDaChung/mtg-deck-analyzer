@@ -449,7 +449,22 @@ async function handleFile(file) {
  * Sections lacking explicit headers get classified as "main".
  */
 function parseDecklist(text) {
-  const lines = text.split(/\r?\n/);
+  // Some paste paths (mobile clipboards, certain ManaBox exports) strip line
+  // breaks so 100 cards end up on one flattened line. Re-insert a \n at every
+  // plausible card boundary — right after a foil flag (*F* / *E*) or after a
+  // "(SET) collector" pair, if the next chars look like "1 {Cardname}".
+  //
+  // Lookahead is locked to qty=1 because a collector number like "111"
+  // followed by " Ajani" is otherwise indistinguishable from "(SET) 11" +
+  // "1 Ajani" vs "(SET) 1" + "11 Ajani" — on commander decks every qty is 1
+  // so this is the safe choice. Plain \n-separated exports are unaffected
+  // (the lookahead needs the "1" immediately after the trailer, not after \n).
+  text = text.replace(
+    /(\*[A-Za-z]+\*|\([A-Za-z0-9]+\)\s+[\w★'-]+?)(?=1\s+[A-Za-z])/g,
+    '$1\n'
+  );
+  // Support all line endings — old-school exports can use \r only.
+  const lines = text.split(/\r\n|\n|\r/);
   const sections = { main: [], commander: [], sideboard: [], maybe: [], companion: [] };
   // Capture "{qty} {rest-of-line}"; printing/flag metadata is stripped later.
   const qtyRe = /^\s*(?:SB:\s*)?(\d+)x?\s+(.+?)\s*$/;
@@ -466,15 +481,26 @@ function parseDecklist(text) {
     do { prev = s; s = stripOne(s); } while (prev !== s);
     return s;
   };
+  // Section headers: Moxfield/Archidekt write "Commander\n...". ManaBox writes
+  // "// COMMANDER\n..." with `//` prefix. Either form is accepted.
+  const sectionHeaders = [
+    [/^(?:\/\/\s*)?(?:deck|mainboard|main)\b/i, 'main'],
+    [/^(?:\/\/\s*)?commander\b/i, 'commander'],
+    [/^(?:\/\/\s*)?sideboard\b/i, 'sideboard'],
+    [/^(?:\/\/\s*)?companion\b/i, 'companion'],
+    [/^(?:\/\/\s*)?maybeboard\b/i, 'maybe'],
+  ];
   let cur = 'main';
   for (const raw of lines) {
     const line = raw.trim();
-    if (!line || line.startsWith('//') || /^name:/i.test(line) || /^about\b/i.test(line)) continue;
-    if (/^(?:deck|mainboard)\b/i.test(line)) { cur = 'main'; continue; }
-    if (/^commander\b/i.test(line)) { cur = 'commander'; continue; }
-    if (/^sideboard\b/i.test(line)) { cur = 'sideboard'; continue; }
-    if (/^companion\b/i.test(line)) { cur = 'companion'; continue; }
-    if (/^maybeboard\b/i.test(line)) { cur = 'maybe'; continue; }
+    if (!line || /^name:/i.test(line) || /^about\b/i.test(line)) continue;
+    let matched = false;
+    for (const [re, sec] of sectionHeaders) {
+      if (re.test(line)) { cur = sec; matched = true; break; }
+    }
+    if (matched) continue;
+    // Any remaining `//` line is a plain comment.
+    if (line.startsWith('//')) continue;
     const m = qtyRe.exec(line);
     if (!m) continue;
     const qty = parseInt(m[1], 10);
