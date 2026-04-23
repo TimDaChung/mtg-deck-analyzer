@@ -12,7 +12,8 @@
     --bg-3: #1e1e2a;
     --border: #2a2a38;
     --text: #e8e8f0;
-    --text-dim: #8a8aa0;
+    /* text-dim lifted to #a0a0b8 for WCAG AA contrast (~5.2:1 on --bg) */
+    --text-dim: #a0a0b8;
     --gold: #d4af37;
     --gold-dim: #8f7425;
     --w: #f9f7e8;
@@ -141,6 +142,9 @@
     color: var(--text-dim); font-weight: 600; text-transform: uppercase;
     font-size: 11px; letter-spacing: 0.5px; background: var(--bg-3);
     cursor: pointer; user-select: none;
+    /* Sticky column headers stay visible while scrolling a long card list. */
+    position: sticky; top: 0; z-index: 2;
+    box-shadow: inset 0 -1px 0 var(--border);
   }
   th:hover { color: var(--text); }
   tr:hover td { background: var(--bg-3); }
@@ -230,9 +234,11 @@
     background: linear-gradient(135deg, var(--bg-2) 0%, var(--bg-3) 100%); border: 1px solid var(--gold-dim); border-radius: 8px; flex-wrap: wrap; }
   .power-left { flex: 0 0 auto; min-width: 180px; border-right: 1px solid var(--border); padding-right: 20px; }
   .power-left-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
-  .power-score { font-size: 54px; font-weight: 800; line-height: 1; color: var(--gold); font-variant-numeric: tabular-nums; }
-  .power-score .denom { font-size: 18px; color: var(--text-dim); font-weight: 400; margin-left: 4px; }
-  .power-band { font-size: 15px; font-weight: 700; margin-top: 6px; color: var(--text); }
+  /* Bracket is the primary headline (WOTC-aligned). Heuristic score is a
+     secondary metric underneath. */
+  .power-band { font-size: 34px; font-weight: 800; line-height: 1.1; color: var(--gold); letter-spacing: 0.5px; font-variant-numeric: tabular-nums; }
+  .power-score-line { font-size: 13px; color: var(--text-dim); margin-top: 8px; font-variant-numeric: tabular-nums; }
+  .power-score-line #powerScore { color: var(--text); font-weight: 700; }
   .power-right { flex: 1 1 400px; }
   .power-right-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
   .power-signal { display: flex; justify-content: space-between; padding: 3px 0; font-size: 13px; }
@@ -240,6 +246,24 @@
   .power-signal .delta.up { color: var(--ok); }
   .power-signal .delta.down { color: var(--danger); }
   .power-disclaimer { font-size: 10px; color: var(--text-dim); margin-top: 10px; font-style: italic; }
+  /* indeterminate top progress bar, visible while an analysis is running */
+  .top-progress {
+    position: fixed; top: 0; left: 0; right: 0; height: 3px;
+    background: transparent; z-index: 200;
+    pointer-events: none;
+    overflow: hidden;
+    opacity: 0; transition: opacity 0.2s;
+  }
+  .top-progress.active { opacity: 1; }
+  .top-progress::after {
+    content: ''; display: block; height: 100%; width: 35%;
+    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    animation: tp-slide 1.4s ease-in-out infinite;
+  }
+  @keyframes tp-slide {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+  }
   /* async loading skeleton inside the strategy panel */
   .skeleton-row {
     height: 58px; border-radius: 6px; margin-bottom: 10px;
@@ -255,11 +279,17 @@
   html { scroll-behavior: smooth; }
   #quickNav { position: fixed; right: 16px; bottom: 16px; z-index: 100; text-align: right; }
   #quickNav .qn-toggle {
-    width: 48px; height: 48px; border-radius: 24px;
-    background: var(--gold); color: var(--bg); border: none;
+    width: 44px; height: 44px; border-radius: 22px;
+    background: rgba(22, 22, 31, 0.82);
+    border: 1px solid var(--gold-dim);
+    color: var(--gold);
     font-size: 18px; font-weight: 700; cursor: pointer; font-family: inherit;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.55);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+    transition: border-color 0.15s, background 0.15s;
   }
+  #quickNav .qn-toggle:hover { border-color: var(--gold); background: rgba(30, 30, 42, 0.9); }
   #quickNav .qn-list {
     display: none;
     list-style: none; margin: 0 0 8px 0; padding: 6px;
@@ -341,9 +371,9 @@
 
     <div class="power-panel" id="powerPanel">
       <div class="power-left">
-        <div class="power-left-label">估計 Power Level</div>
-        <div class="power-score"><span id="powerScore">—</span><span class="denom">/ 10</span></div>
+        <div class="power-left-label">WOTC Bracket</div>
         <div class="power-band" id="powerBand">—</div>
+        <div class="power-score-line">Heuristic score <span id="powerScore">—</span> / 10</div>
       </div>
       <div class="power-right">
         <div class="power-right-label">計分訊號</div>
@@ -433,6 +463,9 @@
   </div>
 </div>
 
+<!-- Top-of-page indeterminate progress bar, toggled by setStatus() -->
+<div id="topProgress" class="top-progress"></div>
+
 <!-- Shared floating card preview -->
 <div id="cardPreview"><img alt="" loading="lazy"></div>
 
@@ -453,6 +486,10 @@
 const $ = (id) => document.getElementById(id);
 const setStatus = (msg, type = 'info') => {
   const el = $('statusBar');
+  const bar = $('topProgress');
+  // Info messages (analysis in progress) light up the top progress bar.
+  // Empty / error states turn it off.
+  if (bar) bar.classList.toggle('active', !!msg && type === 'info');
   if (!msg) { el.innerHTML = ''; return; }
   el.innerHTML = `<div class="status ${type}">${msg}</div>`;
 };
@@ -517,34 +554,19 @@ function parseDecklist(text) {
   // Support all line endings — old-school exports can use \r only.
   const lines = text.split(/\r\n|\n|\r/);
   const sections = { main: [], commander: [], sideboard: [], maybe: [], companion: [] };
-  // Capture "{qty} {rest-of-line}"; printing/flag metadata is stripped later.
+  // Capture "{qty} {rest-of-line}"; printing/flag metadata is parsed below.
   const qtyRe = /^\s*(?:SB:\s*)?(\d+)x?\s+(.+?)\s*$/;
-  // Peel any trailing "(SET) collector", "*F*"/"*E*"/..., or "[foil]" tokens
-  // from the right in any order. Iterate until stable to handle combinations
-  // like `(MIR) 311 *F* *E*`. Previous single-pass regex let .+? swallow the
-  // whole trailer into the name, silently breaking ~all foil printings.
-  const stripOne = (s) => s
-    .replace(/\s*\*[A-Za-z]+\*\s*$/, '')          // *F*, *E*, *G*
-    .replace(/\s*\[[^\]]+\]\s*$/, '')              // [foil], [etched]
-    .replace(/\s*\([A-Za-z0-9]+\)(?:\s+\S+)?\s*$/, ''); // (SET) [collector]
-  const stripTrailers = (s) => {
-    let prev;
-    do { prev = s; s = stripOne(s); } while (prev !== s);
-    return s;
-  };
-  // Extract "(SET) collector_number" from the captured rest-of-line so we can
-  // ask Scryfall for the exact printing the user wrote down (correct card
-  // art). Trailing foil/etched flags are skipped first; what remains that
-  // looks like " (SET) NNN" gets pulled out. Collector numbers can include
-  // letters, dashes, ★ (e.g. "DDS-58", "1534★").
+  // Extract printing metadata from a raw card line so Scryfall can return the
+  // exact printing the user typed (correct art). Strips trailing flags
+  // (*F*/*E*/[foil]) first, then pulls " (SET) collector" if present.
+  // Collector numbers allow letters/dashes/★ (e.g. DDS-58, 1534★).
   const extractPrinting = (rest) => {
     let s = rest;
-    // Peel flags off the right (they're between the collector and nothing)
-    let peeled = '';
-    const flagRe = /\s*(\*[A-Za-z]+\*|\[[^\]]+\])\s*$/;
-    while (flagRe.test(s)) { s = s.replace(flagRe, ''); peeled = ' (flags)'; }
+    while (/\s*(\*[A-Za-z]+\*|\[[^\]]+\])\s*$/.test(s)) {
+      s = s.replace(/\s*(\*[A-Za-z]+\*|\[[^\]]+\])\s*$/, '');
+    }
     const m = /^(.+?)\s+\(([A-Za-z0-9]+)\)(?:\s+([A-Za-z0-9\-★']+))?\s*$/.exec(s);
-    if (!m) return { name: stripTrailers(rest).replace(/\s+/g, ' ').trim(), setCode: null, cn: null };
+    if (!m) return { name: s.replace(/\s+/g, ' ').trim(), setCode: null, cn: null };
     return {
       name: m[1].replace(/\s+/g, ' ').trim(),
       setCode: m[2].toLowerCase(),
@@ -638,8 +660,8 @@ function moxfieldToList(json) {
 }
 
 /* ================== SCRYFALL ================== */
-// v3 bumps key again so old v2 entries that were cached under "name:..." for
-// entries that actually had a specific printing get re-fetched.
+// Versioned cache key — bump when the cached shape changes so deployed
+// clients drop stale entries automatically.
 const CACHE_KEY = 'mtg_analyzer_card_cache_v3';
 const loadCache = () => { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch { return {}; } };
 const saveCache = (c) => localStorage.setItem(CACHE_KEY, JSON.stringify(c));
@@ -752,9 +774,8 @@ async function fetchGameChangers() {
 }
 
 /* ================== SCRYFALL SEARCH CACHE ================== */
-// v2 bumps key to drop any stale "{data:[]}" entries written by the old
-// fetchScrySearch failure path (a transient error would poison the cache
-// permanently, which is why flavor suggestions went empty on github.io).
+// Versioned cache key — bump to invalidate deployed clients when the
+// stored shape changes.
 const SCRY_CACHE_KEY = 'mtg_analyzer_scry_search_v2';
 let _scryCache = null;
 function _loadScry() {
@@ -905,7 +926,7 @@ function analyzeDeckFlavor(cards, commanders, artTagIndex) {
 //   token creator  (oracle: "create … Zombie … token")
 //   oracle mention (oracle text references the tribe name directly)
 // A single card is deduped across signals. Tribes with qty-sum ≥ 10 qualify.
-function analyzeTribalOverlap(cards, commanders, minQty = 10) {
+function analyzeTribalOverlap(cards, commanders, minQty = TRIBAL_MIN_QTY) {
   const all = [...cards, ...commanders];
   const out = [];
   for (const subtype of TRIBAL_TYPES) {
@@ -957,7 +978,7 @@ const NARROW_ARTTAGS = new Set([
   'eye', 'goblin', 'elf', 'spirit', 'ooze', 'merfolk', 'bird', 'snake',
 ]);
 
-async function fetchFlavorSuggestions(theme, colorIdentity, existingKeys, inclusionMap = null, limit = 80) {
+async function fetchFlavorSuggestions(theme, colorIdentity, existingKeys, inclusionMap = null, limit = SUGG_MAX_POOL) {
   // Broad multi-signal query: subtype creatures, name-matching spells, token
   // creators, flavor-text references, and species-tight art tags. The goal is
   // to surface non-creature flavor hits (Shark Typhoon, token generators,
@@ -1373,6 +1394,29 @@ const TRIBAL_TYPES = new Set([
   'Ooze', 'Slug', 'Squid', 'Turtle', 'Crab', 'Fox', 'Dog', 'Mouse',
 ]);
 
+// ==== Power level tuning constants ====
+// Baseline is 2.0 (no-signal kitchen table). Signals push up/down and the
+// final score is clamped to [1, 10]. Bracket mapping aligns to WOTC 2024
+// Commander Bracket System — B1 exhibition → B5 cEDH.
+const POWER_BASELINE = 2.0;
+const POWER_WEIGHTS = {
+  fastMana:      { hi: 2.5, mid: 2.0, lo: 1.0 },
+  tutor:         { hi: 2.5, mid: 1.5, lo: 1.0 },
+  counter:       { hi: 2.0, lo: 1.0 },
+  freeInteract:  { hi: 2.0, lo: 1.0 },
+  comboPiece:    { hi: 2.0, mid: 1.5, lo: 0.75 },
+  gameChanger:   { hi: 2.5, mid: 2.0, mid2: 1.5, lo: 0.75 },
+  avgCmcFast:    { hi: 1.5, mid: 1.0 },
+  avgCmcSlow:    { hi: -1.5, mid: -0.75 },
+  manaRocks:     0.75,
+  completeCombo: { twoPiece: 1.2, multiPiece: 1.5 },
+};
+const BRACKET_THRESHOLDS = { cEDH: 8.5, optimized: 7.0, upgraded: 5.0, core: 3.0 };
+const FLAVOR_MIN_SCORE = 10;      // flavor themes below this are noise
+const TRIBAL_MIN_QTY = 10;        // tribal confirm threshold
+const SUGG_DEFAULT_SHOW = 12;     // suggestion list fold point
+const SUGG_MAX_POOL = 80;         // upper bound on suggestion candidates per theme
+
 // Known 2-card combo pairs. All pieces present → detected + power bonus.
 const KNOWN_COMBOS = [
   { name: 'Dramatic Scepter', pieces: ['dramatic reversal', 'isochron scepter'], note: '需 ≥3 mana rocks 無限 mana' },
@@ -1423,20 +1467,21 @@ const KNOWN_COMBOS = [
   { name: 'Citadel + Aetherflux + Top', pieces: ["bolas's citadel", 'aetherflux reservoir', "sensei's divining top"], note: '無限 storm / life drain → win' },
 ];
 
-const COMBO_PIECES = new Set([
-  // Infinite / near-infinite win cards and key pieces
-  "thassa's oracle", 'thassa’s oracle', 'demonic consultation', 'tainted pact',
-  'laboratory maniac', 'jace, wielder of mysteries',
-  'food chain', 'ad nauseam', 'doomsday', 'underworld breach',
-  'dramatic reversal', 'isochron scepter',
-  'grindstone', "painter's servant", 'painter’s servant',
-  'kiki-jiki, mirror breaker', 'splinter twin',
-  'worldgorger dragon', 'palinchron', 'high tide',
-  'deadeye navigator', 'peregrine drake',
-  'protean hulk', 'flash', 'hermit druid',
-  'cyclonic rift',  // common soft-win finisher (keep out of combo list maybe)
+// Every piece mentioned in KNOWN_COMBOS counts as a combo piece for the
+// power-level signal. Add-only auxiliary pieces (win-cons like Ad Nauseam /
+// Doomsday that have many combo lines not individually enumerated) go in
+// EXTRA_COMBO_PIECES so the set stays in sync automatically when KNOWN_COMBOS
+// grows.
+const EXTRA_COMBO_PIECES = new Set([
+  'ad nauseam', 'doomsday', 'underworld breach',
+  'high tide', 'protean hulk', 'flash', 'hermit druid',
 ]);
-COMBO_PIECES.delete('cyclonic rift'); // don't over-count as combo
+const COMBO_PIECES = new Set([
+  ...KNOWN_COMBOS.flatMap(c => c.pieces.map(p => p.toLowerCase())),
+  ...EXTRA_COMBO_PIECES,
+  // Curly-apostrophe aliases so OCR / pretty-quote pastes still match.
+  'thassa’s oracle', 'painter’s servant', "lion’s eye diamond",
+]);
 
 // ==== Staple whitelist for cards whose oracle text is hard to regex ====
 // Keyed by lowercase card name. Only list cards where heuristics commonly miss.
@@ -1985,79 +2030,76 @@ function analyzeDeck(list, resolved, commanderList = [], gameChangers = new Set(
     return { n, hits };
   };
 
-  let power = 2.0;
+  let power = POWER_BASELINE;
   const powerSignals = [];
   const addSignal = (msg, delta) => {
     power += delta;
     powerSignals.push({ msg, delta });
   };
+  const W = POWER_WEIGHTS;
 
   const fm = countFromSet(FAST_MANA);
-  if (fm.n >= 5) addSignal(`${fm.n} 張 fast mana`, +2.5);
-  else if (fm.n >= 3) addSignal(`${fm.n} 張 fast mana`, +2.0);
-  else if (fm.n >= 1) addSignal(`${fm.n} 張 fast mana`, +1.0);
+  if (fm.n >= 5) addSignal(`${fm.n} 張 fast mana`, +W.fastMana.hi);
+  else if (fm.n >= 3) addSignal(`${fm.n} 張 fast mana`, +W.fastMana.mid);
+  else if (fm.n >= 1) addSignal(`${fm.n} 張 fast mana`, +W.fastMana.lo);
 
   const tutorN = funcCounts.tutor;
-  if (tutorN >= 8) addSignal(`${tutorN} 張 tutor`, +2.5);
-  else if (tutorN >= 5) addSignal(`${tutorN} 張 tutor`, +1.5);
-  else if (tutorN >= 3) addSignal(`${tutorN} 張 tutor`, +1.0);
+  if (tutorN >= 8) addSignal(`${tutorN} 張 tutor`, +W.tutor.hi);
+  else if (tutorN >= 5) addSignal(`${tutorN} 張 tutor`, +W.tutor.mid);
+  else if (tutorN >= 3) addSignal(`${tutorN} 張 tutor`, +W.tutor.lo);
 
   const counterN = funcCounts.counter;
-  if (counterN >= 10) addSignal(`${counterN} 張 counter（cEDH 防禦）`, +2.0);
-  else if (counterN >= 5) addSignal(`${counterN} 張 counter`, +1.0);
+  if (counterN >= 10) addSignal(`${counterN} 張 counter（cEDH 防禦）`, +W.counter.hi);
+  else if (counterN >= 5) addSignal(`${counterN} 張 counter`, +W.counter.lo);
 
   const fi = countFromSet(FREE_INTERACTION);
-  if (fi.n >= 3) addSignal(`${fi.n} 張免費 interaction (FoW/FoN 等)`, +2.0);
-  else if (fi.n >= 1) addSignal(`${fi.n} 張免費 interaction`, +1.0);
+  if (fi.n >= 3) addSignal(`${fi.n} 張免費 interaction (FoW/FoN 等)`, +W.freeInteract.hi);
+  else if (fi.n >= 1) addSignal(`${fi.n} 張免費 interaction`, +W.freeInteract.lo);
 
   const combo = countFromSet(COMBO_PIECES);
-  if (combo.n >= 3) addSignal(`${combo.n} 張 combo piece`, +2.0);
-  else if (combo.n >= 2) addSignal(`${combo.n} 張 combo piece`, +1.5);
-  else if (combo.n >= 1) addSignal(`${combo.n} 張 combo piece`, +0.75);
+  if (combo.n >= 3) addSignal(`${combo.n} 張 combo piece`, +W.comboPiece.hi);
+  else if (combo.n >= 2) addSignal(`${combo.n} 張 combo piece`, +W.comboPiece.mid);
+  else if (combo.n >= 1) addSignal(`${combo.n} 張 combo piece`, +W.comboPiece.lo);
 
-  // Game Changer count — WOTC's official 40-ish card list (Commander Bracket
-  // System). Multiple GCs is the cleanest signal that a deck is pushing past
-  // B3 into optimised territory.
+  // Game Changer = WOTC's official 40-ish card list (Commander Bracket
+  // System). Multiple GCs is the cleanest signal a deck is pushing past B3.
   const gc = countFromSet(gameChangers);
   const gcPreview = gc.hits.slice(0, 3).join(', ') + (gc.hits.length > 3 ? '…' : '');
-  if (gc.n >= 4) addSignal(`${gc.n} 張 Game Changer: ${gcPreview}`, +2.5);
-  else if (gc.n === 3) addSignal(`3 張 Game Changer: ${gcPreview}`, +2.0);
-  else if (gc.n === 2) addSignal(`2 張 Game Changer: ${gcPreview}`, +1.5);
-  else if (gc.n === 1) addSignal(`1 張 Game Changer: ${gc.hits[0]}`, +0.75);
+  if (gc.n >= 4) addSignal(`${gc.n} 張 Game Changer: ${gcPreview}`, +W.gameChanger.hi);
+  else if (gc.n === 3) addSignal(`3 張 Game Changer: ${gcPreview}`, +W.gameChanger.mid);
+  else if (gc.n === 2) addSignal(`2 張 Game Changer: ${gcPreview}`, +W.gameChanger.mid2);
+  else if (gc.n === 1) addSignal(`1 張 Game Changer: ${gc.hits[0]}`, +W.gameChanger.lo);
 
-  if (avgCmc <= 2.0) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（極快）`, +1.5);
-  else if (avgCmc <= 2.5) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（快）`, +1.0);
-  else if (avgCmc >= 4.5) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（偏慢）`, -1.5);
-  else if (avgCmc >= 3.8) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（略慢）`, -0.75);
+  if (avgCmc <= 2.0) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（極快）`, +W.avgCmcFast.hi);
+  else if (avgCmc <= 2.5) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（快）`, +W.avgCmcFast.mid);
+  else if (avgCmc >= 4.5) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（偏慢）`, W.avgCmcSlow.hi);
+  else if (avgCmc >= 3.8) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（略慢）`, W.avgCmcSlow.mid);
 
   const rocksAndDorks = funcCounts.mana_rock + funcCounts.mana_dork;
-  if (rocksAndDorks >= 10) addSignal(`${rocksAndDorks} 張加速生物/法器`, +0.75);
+  if (rocksAndDorks >= 10) addSignal(`${rocksAndDorks} 張加速生物/法器`, +W.manaRocks);
 
-  // Complete combos — differentiate 2-piece vs 3+ piece (3+ is stricter
-  // setup but often more explosive when it lands).
+  // Complete combos — 3+ piece lines weight slightly higher because pulling
+  // all pieces is harder but the payoff tends to be explosive.
   if (detectedCombos.length >= 1) {
     const twoPc = detectedCombos.filter(c => c.pieces.length <= 2).length;
     const multiPc = detectedCombos.filter(c => c.pieces.length >= 3).length;
-    if (twoPc) addSignal(`${twoPc} 個 2 卡 combo pair`, twoPc * 1.2);
-    if (multiPc) addSignal(`${multiPc} 個 3+ 卡 combo line`, multiPc * 1.5);
+    if (twoPc) addSignal(`${twoPc} 個 2 卡 combo pair`, twoPc * W.completeCombo.twoPiece);
+    if (multiPc) addSignal(`${multiPc} 個 3+ 卡 combo line`, multiPc * W.completeCombo.multiPiece);
   }
 
   power = Math.max(1, Math.min(10, power));
 
-  // WOTC Commander Bracket mapping (2024 official). Hard rules take priority
-  // over raw score. Thresholds calibrated with baseline 2.0:
-  //   B5 cEDH       — tuned, loaded with GC + complete combos
-  //   B4 Optimized  — complete combos, or 4+ Game Changers, or score ≥ 7.0
-  //   B3 Upgraded   — some GC / high power staples, score ≥ 5.0
-  //   B2 Core       — casual / precon-level, score ≥ 3.0
-  //   B1 Exhibition — kitchen table (no detectable signals → baseline 2.0)
+  // WOTC Commander Bracket (2024). Hard rules — complete combos or many
+  // Game Changers — take priority over raw score. Thresholds live in
+  // BRACKET_THRESHOLDS at module scope for easy tuning.
   const completeComboN = detectedCombos.length;
   const gcN = gc.n;
+  const T = BRACKET_THRESHOLDS;
   let bracket;
-  if (power >= 8.5 && completeComboN >= 1 && gcN >= 3) bracket = { n: 5, name: 'cEDH' };
-  else if (completeComboN >= 1 || gcN >= 4 || power >= 7.0)         bracket = { n: 4, name: 'Optimized' };
-  else if (gcN >= 1 || power >= 5.0)                                 bracket = { n: 3, name: 'Upgraded' };
-  else if (power >= 3.0)                                             bracket = { n: 2, name: 'Core' };
+  if (power >= T.cEDH && completeComboN >= 1 && gcN >= 3)        bracket = { n: 5, name: 'cEDH' };
+  else if (completeComboN >= 1 || gcN >= 4 || power >= T.optimized) bracket = { n: 4, name: 'Optimized' };
+  else if (gcN >= 1 || power >= T.upgraded)                          bracket = { n: 3, name: 'Upgraded' };
+  else if (power >= T.core)                                          bracket = { n: 2, name: 'Core' };
   else                                                               bracket = { n: 1, name: 'Exhibition' };
   const band = `B${bracket.n} · ${bracket.name}`;
 
@@ -2082,7 +2124,11 @@ function analyzeDeck(list, resolved, commanderList = [], gameChangers = new Set(
     strategyAnalysis,
     totalUsd,
     pricedCount,
-    _raw: { cards, commanderCards },
+    // Private side-channel kept in sync with analysis lifecycle. Fields:
+    //   raw          resolved card rows (set during analyzeDeck)
+    //   edhJson      commander JSON cached from EDHREC (async enrichment)
+    //   inclusionMap lowercase name → { inclusion, synergy, ... } from edhJson
+    _cache: { raw: { cards, commanderCards }, edhJson: null, inclusionMap: null },
   };
 }
 
@@ -2345,10 +2391,17 @@ function renderAll(analysis, deckName) {
       const setHtml = setBadge
         ? `<div style="font-size:10px;color:var(--text-dim);margin-top:2px;">${setBadge}</div>`
         : '';
+      // Commander name links to Scryfall (art / flavor / set info). A small
+      // EDHREC chip next to it jumps straight to the commander's page.
+      const scryHref = `https://scryfall.com/search?q=%21%22${encodeURIComponent(r.name)}%22`;
+      const edhHref = r.edhrecUrl || `https://edhrec.com/commanders/${edhrecSlug(r.name)}`;
       return `<div class="commander-block ${dual ? 'dual' : ''}">
         ${r.art ? `<div class="cmd-art" style="background-image:url('${r.art}');" ${attr}></div>` : ''}
         <div style="flex:1;">
-          <div class="cmd-name" ${attr}>${r.name}</div>
+          <div class="cmd-name" ${attr}>
+            <a href="${scryHref}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;border-bottom:1px dotted var(--gold-dim);">${r.name}</a>
+            <a href="${edhHref}" target="_blank" rel="noopener" style="font-size:11px;color:var(--gold);text-decoration:none;margin-left:8px;font-weight:400;">EDHREC →</a>
+          </div>
           <div class="cmd-name small">${r.card.type_line || ''}</div>
           ${setHtml}
           ${flavorHtml}
@@ -2589,7 +2642,7 @@ function renderPowerLevel(pl) {
 // Shared renderer for a card-link list with inclusion badge + "show all" toggle.
 // `cards` entries may carry: { name, slug?, imgUrl?, inclusion? (0–1) }.
 function renderSuggestionCards(cards, opts = {}) {
-  const defaultShow = opts.defaultShow ?? 12;
+  const defaultShow = opts.defaultShow ?? SUGG_DEFAULT_SHOW;
   if (!cards || !cards.length) {
     return '<span style="color:var(--text-dim);font-size:11px;">（無建議 / 已放滿）</span>';
   }
@@ -2682,7 +2735,7 @@ function renderStrategyPanel(analysis) {
       const missingCards = t.missing.map(c => ({
         name: c.name, slug: c.slug, inclusion: c.inclusion,
       }));
-      const suggBlock = renderSuggestionCards(missingCards, { withEdhrecLink: true, defaultShow: 12 });
+      const suggBlock = renderSuggestionCards(missingCards, { withEdhrecLink: true });
       const hitBadge = t.overlap.count >= 5
         ? '🎯 強命中'
         : t.overlap.count >= 3 ? '◉ 中等命中' : '◌ 弱命中';
@@ -2728,7 +2781,7 @@ function renderStrategyPanel(analysis) {
       const suggCards = (t.suggestions || []).map(c => ({
         name: c.name, imgUrl: c.imgUrl, inclusion: c.inclusion ?? null,
       }));
-      const suggestionsHtml = renderSuggestionCards(suggCards, { defaultShow: 12 });
+      const suggestionsHtml = renderSuggestionCards(suggCards, {});
       return `<div style="margin-bottom:12px;padding:10px 12px;background:var(--bg-3);border-radius:6px;">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
           <span style="font-size:14px;font-weight:700;color:var(--gold);">🧬 ${t.subtype}</span>
@@ -2804,7 +2857,7 @@ function renderStrategyPanel(analysis) {
         imgUrl: c.imgUrl,
         inclusion: c.inclusion ?? null,
       }));
-      const suggestionsHtml = renderSuggestionCards(suggCards, { defaultShow: 12 });
+      const suggestionsHtml = renderSuggestionCards(suggCards, {});
 
       return `<div style="margin-bottom:12px;padding:10px 12px;background:var(--bg-3);border-radius:6px;">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
@@ -2852,7 +2905,10 @@ function renderStrategyPanel(analysis) {
     </div>`);
   }
 
-  content.innerHTML = sections.join('<hr style="border:0;border-top:1px solid var(--border);margin:14px 0;">');
+  // No <hr> between sections — each section already provides its own top
+  // margin. Rules visually chop the panel into unrelated slabs; the gaps are
+  // rhythm enough.
+  content.innerHTML = sections.join('');
 }
 
 function renderDeepStats(analysis) {
@@ -3083,7 +3139,7 @@ async function runAnalyze() {
     }
 
     const analysis = analyzeDeck(mainList, resolved, commanderList, gameChangers);
-    if (analysis._raw.cards.length === 0 && analysis._raw.commanderCards.length === 0) {
+    if (analysis._cache.raw.cards.length === 0 && analysis._cache.raw.commanderCards.length === 0) {
       throw new Error('沒有任何卡成功查到資料');
     }
 
@@ -3121,9 +3177,9 @@ async function runAnalyze() {
           let inclusionMap = null;
           try {
             edhJson = await fetchEdhrecCommander(cmdSlug);
-            analysis._edhJson = edhJson;
+            analysis._cache.edhJson = edhJson;
             inclusionMap = buildEdhrecInclusionMap(edhJson);
-            analysis._inclusionMap = inclusionMap;
+            analysis._cache.inclusionMap = inclusionMap;
           } catch (err) {
             console.warn('EDHREC commander fetch failed; skipping theme/inclusion overlay', err);
           }
@@ -3156,15 +3212,15 @@ async function runAnalyze() {
           // is typically 1-2 tangential hits (e.g. one Knight in a non-knight
           // deck) and feels noisy. Still cap at top 3 so output stays compact.
           const flavorResults = analyzeDeckFlavor(
-            analysis._raw.cards,
-            analysis._raw.commanderCards,
+            analysis._cache.raw.cards,
+            analysis._cache.raw.commanderCards,
             artIndex
-          ).filter(fr => fr.totalScore >= 10).slice(0, 3);
+          ).filter(fr => fr.totalScore >= FLAVOR_MIN_SCORE).slice(0, 3);
 
           // Tribal overlap — multi-signal per tribe, ≥10 qualifies, top 3
           const tribalOverlap = analyzeTribalOverlap(
-            analysis._raw.cards,
-            analysis._raw.commanderCards,
+            analysis._cache.raw.cards,
+            analysis._cache.raw.commanderCards,
             10,
           );
 
