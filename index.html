@@ -2470,6 +2470,32 @@ function renderStrategyPanel(analysis) {
     </div>`);
   }
 
+  // Tribal confirmation — only surface when the deck has ≥10 of a single
+  // creature subtype. Lower thresholds are too noisy (most decks will have
+  // 3-5 of some tribe by accident).
+  const allTribal = [...(sa.tribal || []), ...(sa.deckTribal || [])];
+  const strongTribal = allTribal.filter(t => t.count >= 10);
+  // De-dup subtypes that appear both in commander-side and deck-level.
+  const seenTribal = new Set();
+  const uniqTribal = strongTribal.filter(t => {
+    if (seenTribal.has(t.subtype)) return false;
+    seenTribal.add(t.subtype); return true;
+  });
+  if (uniqTribal.length) {
+    const rows = uniqTribal.map(t => {
+      const from = t.fromCommander ? '呼應 commander' : 'deck 內主動';
+      const pct = t.pct != null ? ` · ${Math.round(t.pct * 100)}% 的生物` : '';
+      return `<div style="padding:6px 10px;background:var(--bg-3);border-radius:6px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:baseline;">
+        <span style="font-size:13px;font-weight:700;color:var(--gold);">🧬 ${t.subtype} Tribal</span>
+        <span style="font-size:12px;color:var(--text);">${t.count} 張<span style="color:var(--text-dim);font-size:11px;">${pct} · ${from}</span></span>
+      </div>`;
+    }).join('');
+    sections.push(`<div style="margin-top:14px;">
+      <div style="font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🧬 Tribal 主題確認（同種族 ≥ 10 張）</div>
+      ${rows}
+    </div>`);
+  }
+
   // Commander keyword strategies — fallback only when EDHREC themes gave no
   // strong match. When EDHREC already nailed the archetype, oracle-text regex
   // matching is noisier than helpful.
