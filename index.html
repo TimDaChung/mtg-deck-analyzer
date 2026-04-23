@@ -739,6 +739,54 @@ function analyzeDeckFlavor(cards, commanders, artTagIndex) {
   return results;
 }
 
+// For every tribe in TRIBAL_TYPES, tally cards that match via
+//   subtype        (type_line says "— … Zombie …")
+//   token creator  (oracle: "create … Zombie … token")
+//   oracle mention (oracle text references the tribe name directly)
+// A single card is deduped across signals. Tribes with qty-sum ≥ 10 qualify.
+function analyzeTribalOverlap(cards, commanders, minQty = 10) {
+  const all = [...cards, ...commanders];
+  const out = [];
+  for (const subtype of TRIBAL_TYPES) {
+    const lower = subtype.toLowerCase();
+    const wordRe = new RegExp(`\\b${lower}s?\\b`, 'i');
+    const tokenRe = new RegExp(`create (?:a|an|one|two|three|four|five|\\d+|x|that many)[^.]{0,80}?\\b${lower}\\b[^.]{0,40}?token`, 'i');
+    const matchedByName = new Map(); // name → { qty, signals:Set, isCmd }
+    for (const row of all) {
+      const { qty, card } = row;
+      const isCmd = commanders.includes(row);
+      const typeLine = card.type_line || '';
+      const oracle = ((card.oracle_text || '') + ' ' +
+        (card.card_faces || []).map(f => (f.oracle_text || '')).join(' ')).toLowerCase();
+      const sigs = new Set();
+      if (wordRe.test(typeLine)) sigs.add('subtype');
+      if (tokenRe.test(oracle)) sigs.add('token');
+      // Oracle mention only when subtype isn't already hit — avoids
+      // double-signal bloat but keeps tribal-ref cards (e.g. "lords").
+      if (!sigs.has('subtype') && wordRe.test(oracle)) sigs.add('text');
+      if (sigs.size) {
+        const prev = matchedByName.get(card.name);
+        if (prev) { prev.qty += qty; sigs.forEach(s => prev.signals.add(s)); }
+        else matchedByName.set(card.name, { qty, signals: sigs, isCmd });
+      }
+    }
+    let qtyCount = 0;
+    for (const v of matchedByName.values()) qtyCount += v.qty;
+    if (qtyCount >= minQty) {
+      out.push({
+        subtype,
+        qtyCount,
+        cardCount: matchedByName.size,
+        matched: [...matchedByName.entries()].map(([name, v]) => ({
+          name, qty: v.qty, signals: [...v.signals], isCommander: v.isCmd,
+        })).sort((a, b) => b.qty - a.qty),
+      });
+    }
+  }
+  out.sort((a, b) => b.qtyCount - a.qtyCount);
+  return out.slice(0, 3);
+}
+
 async function fetchFlavorSuggestions(theme, colorIdentity, existingKeys, inclusionMap = null, limit = 60) {
   // Subtype-first: when a creature subtype exists it's the strongest signal, so
   // query on it alone. Only fall back to token/name for themes without a
@@ -2470,28 +2518,40 @@ function renderStrategyPanel(analysis) {
     </div>`);
   }
 
-  // Tribal confirmation — only surface when the deck has ≥10 of a single
-  // creature subtype. Lower thresholds are too noisy (most decks will have
-  // 3-5 of some tribe by accident).
-  const allTribal = [...(sa.tribal || []), ...(sa.deckTribal || [])];
-  const strongTribal = allTribal.filter(t => t.count >= 10);
-  // De-dup subtypes that appear both in commander-side and deck-level.
-  const seenTribal = new Set();
-  const uniqTribal = strongTribal.filter(t => {
-    if (seenTribal.has(t.subtype)) return false;
-    seenTribal.add(t.subtype); return true;
-  });
-  if (uniqTribal.length) {
-    const rows = uniqTribal.map(t => {
-      const from = t.fromCommander ? '呼應 commander' : 'deck 內主動';
-      const pct = t.pct != null ? ` · ${Math.round(t.pct * 100)}% 的生物` : '';
-      return `<div style="padding:6px 10px;background:var(--bg-3);border-radius:6px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:baseline;">
-        <span style="font-size:13px;font-weight:700;color:var(--gold);">🧬 ${t.subtype} Tribal</span>
-        <span style="font-size:12px;color:var(--text);">${t.count} 張<span style="color:var(--text-dim);font-size:11px;">${pct} · ${from}</span></span>
+  // Tribal — multi-signal (subtype + token + oracle mention), top 3 with ≥10
+  // qty. Suggestions use the same EDHREC-inclusion overlay as flavor.
+  const tribalOverlap = sa.tribalOverlap || [];
+  if (tribalOverlap.length) {
+    const rows = tribalOverlap.map(t => {
+      const sigTally = { subtype: 0, token: 0, text: 0 };
+      for (const m of t.matched) for (const s of m.signals) sigTally[s] = (sigTally[s] || 0) + m.qty;
+      const chips = [
+        sigTally.subtype ? `🧬type ${sigTally.subtype}` : null,
+        sigTally.token ? `🎟️token ${sigTally.token}` : null,
+        sigTally.text ? `📝text ${sigTally.text}` : null,
+      ].filter(Boolean).map(x =>
+        `<span style="display:inline-block;padding:1px 6px;margin-right:3px;background:var(--bg-2);border-radius:8px;font-size:10px;color:var(--text-dim);">${x}</span>`
+      ).join('');
+      const hitPreview = t.matched.slice(0, 5).map(m => m.name).join('、') + (t.matched.length > 5 ? ` 等 ${t.matched.length} 張` : '');
+      const suggCards = (t.suggestions || []).map(c => ({
+        name: c.name, imgUrl: c.imgUrl, inclusion: c.inclusion ?? null,
+      }));
+      const suggestionsHtml = renderSuggestionCards(suggCards, { defaultShow: 12 });
+      return `<div style="margin-bottom:12px;padding:10px 12px;background:var(--bg-3);border-radius:6px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+          <span style="font-size:14px;font-weight:700;color:var(--gold);">🧬 ${t.subtype}</span>
+          <span style="font-size:11px;color:var(--text-dim);">${t.qtyCount} 張 · ${t.cardCount} 種</span>
+        </div>
+        <div style="margin:4px 0 6px;">${chips}</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px;">包含：${hitPreview}</div>
+        <details open style="font-size:11px;margin-top:4px;">
+          <summary style="cursor:pointer;color:var(--gold);">💡 建議補充 ${t.subtype} 卡（按 inclusion 排）</summary>
+          <div style="padding:6px 0;line-height:1.8;">${suggestionsHtml}</div>
+        </details>
       </div>`;
     }).join('');
     sections.push(`<div style="margin-top:14px;">
-      <div style="font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🧬 Tribal 主題確認（同種族 ≥ 10 張）</div>
+      <div style="font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🧬 Tribal 主題確認（subtype / token / oracle 加總 ≥ 10 張）</div>
       ${rows}
     </div>`);
   }
@@ -2579,25 +2639,8 @@ function renderStrategyPanel(analysis) {
     </div>`);
   }
 
-  // Art Tag flavor detection — Scryfall community art tags
-  const artTags = sa.artTags;
-  if (artTags && artTags.length) {
-    const rows = artTags.map(h => {
-      const matchedPreview = h.matched.slice(0, 4).join('、') + (h.matched.length > 4 ? ` 等 ${h.matched.length} 張` : '');
-      return `<div class="stat" style="padding:4px 0;">
-        <span class="stat-label">${h.label}</span>
-        <span class="stat-value">${h.count} 張 <span style="color:var(--text-dim);font-size:11px;">· ${matchedPreview}</span></span>
-      </div>`;
-    }).join('');
-    sections.push(`<div style="margin-top:14px;">
-      <div style="font-size:11px;color:var(--text);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🎨 卡圖風味主題（Scryfall 社群 art tag ≥ 2 張才列出）</div>
-      ${rows}
-    </div>`);
-  } else if (sa.artTagsLoading) {
-    sections.push(`<div style="margin-top:14px;font-size:11px;color:var(--text-dim);">
-      🎨 卡圖風味：載入中…
-    </div>`);
-  }
+  // Art tag data still collected (feeds flavor scoring +1.25) but no longer
+  // rendered as its own section — flavor + tribal cover the user-facing view.
 
   content.innerHTML = sections.join('<hr style="border:0;border-top:1px solid var(--border);margin:14px 0;">');
 }
@@ -2875,11 +2918,26 @@ async function runAnalyze() {
             artIndex
           ).slice(0, 3);
 
-          const flavorSuggestions = await Promise.all(flavorResults.map(fr =>
-            fetchFlavorSuggestions(fr.theme, analysis.ci, existingKeys, inclusionMap)
-          ));
+          // Tribal overlap — multi-signal per tribe, ≥10 qualifies, top 3
+          const tribalOverlap = analyzeTribalOverlap(
+            analysis._raw.cards,
+            analysis._raw.commanderCards,
+            10,
+          );
+
+          const [flavorSuggestions, tribalSuggestionArrs] = await Promise.all([
+            Promise.all(flavorResults.map(fr =>
+              fetchFlavorSuggestions(fr.theme, analysis.ci, existingKeys, inclusionMap)
+            )),
+            Promise.all(tribalOverlap.map(t => fetchFlavorSuggestions(
+              { subtypes: [t.subtype], tokenTypes: [t.subtype], nameWords: [] },
+              analysis.ci, existingKeys, inclusionMap
+            ))),
+          ]);
           flavorResults.forEach((fr, i) => { fr.suggestions = flavorSuggestions[i]; });
+          tribalOverlap.forEach((t, i) => { t.suggestions = tribalSuggestionArrs[i]; });
           analysis.strategyAnalysis.flavorThemes = flavorResults;
+          analysis.strategyAnalysis.tribalOverlap = tribalOverlap;
           analysis.strategyAnalysis.artTagsLoading = false;
           renderStrategyPanel(analysis);
         } catch (e) {
