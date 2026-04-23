@@ -1,0 +1,2944 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MTG Deck Analyzer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0d0d14;
+    --bg-2: #16161f;
+    --bg-3: #1e1e2a;
+    --border: #2a2a38;
+    --text: #e8e8f0;
+    --text-dim: #8a8aa0;
+    --gold: #d4af37;
+    --gold-dim: #8f7425;
+    --w: #f9f7e8;
+    --u: #4a8fcf;
+    --b: #4a4855;
+    --r: #d95a4a;
+    --g: #3bb273;
+    --c: #a0a0b0;
+    --m: #e2c275;
+    --danger: #e06b5a;
+    --ok: #4fd1a7;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Inter", system-ui, sans-serif; }
+  body { min-height: 100vh; padding: 24px; }
+  h1 { margin: 0 0 4px; font-size: 22px; letter-spacing: 1px; }
+  h1 .gold { color: var(--gold); }
+  .subtitle { color: var(--text-dim); font-size: 13px; margin-bottom: 20px; }
+  .container { max-width: 1100px; margin: 0 auto; }
+
+  /* input section */
+  .input-card {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+  .tabs { display: flex; gap: 2px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .tab {
+    padding: 8px 14px; cursor: pointer; color: var(--text-dim); font-size: 13px;
+    border-bottom: 2px solid transparent; transition: all .15s;
+  }
+  .tab.active { color: var(--gold); border-bottom-color: var(--gold); }
+  .tab:hover:not(.active) { color: var(--text); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  textarea, input[type=text], input[type=url] {
+    width: 100%; background: var(--bg-3); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px;
+    font-family: "SF Mono", "Consolas", monospace; font-size: 13px;
+    resize: vertical;
+  }
+  textarea { min-height: 160px; }
+  textarea::placeholder { color: var(--text-dim); }
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: 8px; padding: 40px 16px;
+    text-align: center; color: var(--text-dim); cursor: pointer;
+    transition: all .15s;
+  }
+  .drop-zone.drag-over { border-color: var(--gold); color: var(--gold); background: var(--bg-3); }
+  .hint { font-size: 11px; color: var(--text-dim); margin-top: 8px; line-height: 1.5; }
+  .button-row {
+    display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px;
+    padding-top: 14px; border-top: 1px solid var(--border);
+  }
+  button {
+    background: var(--gold); color: var(--bg); border: 0; border-radius: 6px;
+    padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer;
+    font-family: inherit;
+  }
+  button:hover:not(:disabled) { background: #e5bf4a; }
+  button:disabled { background: var(--gold-dim); cursor: wait; opacity: 0.6; }
+  button.secondary {
+    background: transparent; color: var(--text-dim); border: 1px solid var(--border);
+  }
+  button.secondary:hover:not(:disabled) { color: var(--text); border-color: var(--text-dim); }
+
+  /* results */
+  .result { display: none; }
+  .result.visible { display: block; }
+  .deck-header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 14px 18px; background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: 14px; flex-wrap: wrap; gap: 12px;
+  }
+  .deck-title { font-size: 17px; font-weight: 600; }
+  .deck-meta { color: var(--text-dim); font-size: 13px; }
+  .deck-meta .sep { margin: 0 8px; color: var(--border); }
+  .color-pill {
+    display: inline-block; padding: 2px 10px; border-radius: 10px;
+    font-size: 11px; font-weight: 700; margin-left: 8px;
+    background: var(--bg-3); border: 1px solid var(--border);
+  }
+
+  .grid { display: grid; gap: 14px; grid-template-columns: 2fr 1fr; margin-bottom: 14px; }
+  .grid-3 { display: grid; gap: 14px; grid-template-columns: 1fr 1fr 1fr; margin-bottom: 14px; }
+  @media (max-width: 860px) { .grid, .grid-3 { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px;
+  }
+  .panel h3 {
+    margin: 0 0 10px; font-size: 13px; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 1px; font-weight: 600;
+  }
+  .stat { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; }
+  .stat-label { color: var(--text-dim); font-size: 12px; }
+  .stat-value { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .big-stat { font-size: 28px; font-weight: 700; color: var(--gold); font-variant-numeric: tabular-nums; }
+  .big-stat-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+
+  canvas { max-height: 220px; }
+
+  /* card table */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+  th {
+    color: var(--text-dim); font-weight: 600; text-transform: uppercase;
+    font-size: 11px; letter-spacing: 0.5px; background: var(--bg-3);
+    cursor: pointer; user-select: none;
+  }
+  th:hover { color: var(--text); }
+  tr:hover td { background: var(--bg-3); }
+  td a { color: var(--gold); text-decoration: none; }
+  td a:hover { text-decoration: underline; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .type-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 10px; background: var(--bg-3); border: 1px solid var(--border);
+  }
+  .pips { letter-spacing: 1px; font-family: "SF Mono", monospace; font-size: 11px; }
+  .pip { display: inline-block; padding: 0 3px; border-radius: 50%; width: 14px; height: 14px; line-height: 14px; text-align: center; font-weight: 700; }
+  .pip-W { background: var(--w); color: #111; }
+  .pip-U { background: var(--u); color: #fff; }
+  .pip-B { background: var(--b); color: #fff; }
+  .pip-R { background: var(--r); color: #fff; }
+  .pip-G { background: var(--g); color: #fff; }
+  .pip-C { background: var(--c); color: #111; }
+  .pip-X, .pip-N { background: var(--bg-3); color: var(--text); border: 1px solid var(--border); }
+
+  /* status / errors */
+  .status { padding: 10px 14px; border-radius: 6px; margin: 10px 0; font-size: 13px; }
+  .status.err { background: #3b1a1a; color: var(--danger); border: 1px solid #5a2525; }
+  .status.info { background: var(--bg-3); color: var(--text-dim); border: 1px solid var(--border); }
+  .loading { display: inline-block; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .progress-bar { height: 4px; background: var(--bg-3); border-radius: 2px; overflow: hidden; margin-top: 8px; }
+  .progress-fill { height: 100%; background: var(--gold); width: 0%; transition: width .2s; }
+  .footer-note { text-align: center; color: var(--text-dim); font-size: 11px; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .footer-note a { color: var(--text-dim); }
+
+  /* Commander block */
+  .deck-header { align-items: stretch; }
+  .deck-header-main { flex: 1 1 auto; min-width: 200px; }
+  .deck-header-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .commander-block { display: flex; gap: 10px; align-items: center; padding: 8px 10px; background: var(--bg-3); border-radius: 6px; border: 1px solid var(--border); margin-top: 4px; }
+  .commander-block.dual { gap: 6px; }
+  .cmd-art { width: 56px; height: 56px; border-radius: 4px; background-size: cover; background-position: center 25%; border: 1px solid var(--border); flex-shrink: 0; }
+  .cmd-name { font-size: 13px; font-weight: 600; }
+  .cmd-name .small { color: var(--text-dim); font-weight: 400; font-size: 11px; }
+  .edhrec-btn {
+    display: inline-block; padding: 6px 12px; background: var(--gold); color: var(--bg);
+    border-radius: 5px; font-size: 12px; font-weight: 700; text-decoration: none;
+    border: 0; cursor: pointer;
+  }
+  .edhrec-btn:hover { background: #e5bf4a; }
+  .mode-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px;
+    font-weight: 700; background: var(--bg-3); color: var(--text-dim);
+    border: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .mode-badge.commander { color: var(--gold); border-color: var(--gold-dim); }
+
+  /* Violations */
+  .violations { margin-bottom: 14px; }
+  .violation-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .violation-item:last-child { border-bottom: 0; }
+  .violation-pips { color: var(--danger); font-weight: 700; }
+
+  /* small EDHREC link in table */
+  .ext-links a { color: var(--text-dim); text-decoration: none; padding: 0 4px; font-size: 11px; }
+  .ext-links a:hover { color: var(--gold); }
+
+  /* card hover preview */
+  #cardPreview {
+    position: fixed; z-index: 9999; pointer-events: none;
+    display: none; transition: opacity .08s;
+  }
+  #cardPreview img {
+    width: 240px; height: 334px; border-radius: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.85);
+    border: 1px solid var(--gold-dim);
+    background: var(--bg-3);
+  }
+
+  /* subtle underline for card-link hoverable spots */
+  [data-card-name], [data-card-img] { cursor: help; }
+
+  /* partial combos section */
+  .partial-combo { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 12px; }
+  .partial-combo .have { color: var(--ok); }
+  .partial-combo .miss { color: var(--gold); }
+
+  /* power level panel */
+  .power-panel { display: flex; gap: 24px; align-items: stretch; padding: 16px 20px; margin-bottom: 14px;
+    background: linear-gradient(135deg, var(--bg-2) 0%, var(--bg-3) 100%); border: 1px solid var(--gold-dim); border-radius: 8px; flex-wrap: wrap; }
+  .power-left { flex: 0 0 auto; min-width: 180px; border-right: 1px solid var(--border); padding-right: 20px; }
+  .power-left-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .power-score { font-size: 54px; font-weight: 800; line-height: 1; color: var(--gold); font-variant-numeric: tabular-nums; }
+  .power-score .denom { font-size: 18px; color: var(--text-dim); font-weight: 400; margin-left: 4px; }
+  .power-band { font-size: 15px; font-weight: 700; margin-top: 6px; color: var(--text); }
+  .power-right { flex: 1 1 400px; }
+  .power-right-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .power-signal { display: flex; justify-content: space-between; padding: 3px 0; font-size: 13px; }
+  .power-signal .delta { font-family: "SF Mono", monospace; font-variant-numeric: tabular-nums; }
+  .power-signal .delta.up { color: var(--ok); }
+  .power-signal .delta.down { color: var(--danger); }
+  .power-disclaimer { font-size: 10px; color: var(--text-dim); margin-top: 10px; font-style: italic; }
+  .mv-sugg { display: inline-block; padding: 2px 0; }
+  .mv-sugg.mv-hidden { display: none; }
+  .mv-sugg-list.mv-expanded .mv-sugg.mv-hidden { display: inline-block; }
+  .mv-more { background: var(--bg-2); border: 1px solid var(--gold-dim); color: var(--gold); padding: 4px 12px; border-radius: 4px; font-size: 11px; cursor: pointer; margin-top: 8px; font-family: inherit; }
+  .mv-more:hover { background: var(--bg-3); border-color: var(--gold); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><span class="gold">⚔️</span> MTG Deck Analyzer <span class="gold">·</span> <span style="font-size:13px;color:var(--text-dim);font-weight:400;">mana curve · colors · mulligan</span></h1>
+  <div class="subtitle">貼入 Moxfield / ManaBox / MTGA 匯出文字 · 自動偵測 Commander · 一鍵跳 EDHREC · 本地快取卡牌資料</div>
+
+  <!-- ================ INPUT ================ -->
+  <div class="input-card" id="inputCard">
+    <div class="tabs">
+      <div class="tab active" data-panel="paste">貼匯入文字</div>
+      <div class="tab" data-panel="drop">拖放 .txt</div>
+      <div class="tab" data-panel="url">Moxfield URL</div>
+    </div>
+
+    <div class="tab-panel active" data-panel="paste">
+      <textarea id="pasteInput" placeholder="Commander&#10;1 Atraxa, Praetors' Voice&#10;&#10;Deck&#10;1 Sol Ring&#10;1 Cultivate&#10;1 Cyclonic Rift&#10;1 Doubling Season&#10;...&#10;36 (basic / dual lands)&#10;&#10;（也支援 60-card：直接列卡牌、不用任何標頭）"></textarea>
+      <div class="hint">支援 <code>N 卡名</code> 或 <code>N 卡名 (SET) 號碼</code>（MTGA 格式）。<strong>有 Commander 區段</strong>就走 Commander 模式（自動跑 color identity 違規檢查 + EDHREC 連結）；沒有就當 60-card。Moxfield 「Export as text」直接貼即可。</div>
+    </div>
+
+    <div class="tab-panel" data-panel="drop">
+      <div class="drop-zone" id="dropZone">
+        <div style="font-size: 32px; margin-bottom: 8px;">📄</div>
+        <div>把 .txt 牌組檔拖進來，或 <label style="color:var(--gold);cursor:pointer;text-decoration:underline;">點擊選檔<input type="file" id="fileInput" accept=".txt,.dec,.mwdeck" style="display:none"></label></div>
+        <div class="hint" style="margin-top: 12px;">支援 ManaBox / MTGA / Moxfield 匯出的 txt</div>
+      </div>
+    </div>
+
+    <div class="tab-panel" data-panel="url">
+      <input type="url" id="urlInput" placeholder="https://www.moxfield.com/decks/xxxxxxxxxx">
+      <div class="hint">從 Moxfield API 讀取（遇到 CORS 失敗時會自動走 corsproxy.io fallback；若兩邊都失敗，請改用「貼匯入文字」）。</div>
+    </div>
+
+    <div id="statusBar"></div>
+
+    <div class="button-row">
+      <button class="secondary" id="clearCacheBtn" title="清除 Scryfall 卡牌快取">清除快取</button>
+      <button id="analyzeBtn">分析牌組</button>
+    </div>
+  </div>
+
+  <!-- ================ RESULTS ================ -->
+  <div class="result" id="result">
+    <div class="deck-header">
+      <div class="deck-header-main">
+        <div class="deck-title" id="deckTitle">Deck</div>
+        <div class="deck-meta" id="deckMeta"></div>
+        <div id="commanderPanel"></div>
+      </div>
+      <div class="deck-header-side">
+        <div id="modeBadge"></div>
+        <div id="colorIdentity"></div>
+        <a id="edhrecBtn" target="_blank" rel="noopener" class="edhrec-btn" style="display:none;">在 EDHREC 看 →</a>
+      </div>
+    </div>
+
+    <div class="panel violations" id="violationsPanel" style="display:none;">
+      <h3 style="color: var(--danger);">⚠️ Color Identity 違規（Commander 規則）</h3>
+      <div id="violationsList"></div>
+    </div>
+
+    <div class="power-panel" id="powerPanel">
+      <div class="power-left">
+        <div class="power-left-label">估計 Power Level</div>
+        <div class="power-score"><span id="powerScore">—</span><span class="denom">/ 10</span></div>
+        <div class="power-band" id="powerBand">—</div>
+      </div>
+      <div class="power-right">
+        <div class="power-right-label">計分訊號</div>
+        <div id="powerSignals"></div>
+        <div class="power-disclaimer" id="powerDisclaimer">基線 4.0 + signal heuristic：fast mana / tutor / counter / free interaction / combo piece / <strong>Game Changer（WOTC 官方名單，即時抓 Scryfall）</strong> / 平均 CMC / 加速密度 / 完整 combo（2 卡、3+ 卡分權重）。Bracket 對齊 WOTC 2024 Commander Bracket System（B1–B5），硬規則優先於分數。</div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="panel">
+        <h3>Mana Curve（不含地）</h3>
+        <canvas id="curveChart"></canvas>
+      </div>
+      <div class="panel">
+        <h3>顏色分布</h3>
+        <canvas id="colorChart"></canvas>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Goldfish 10 回合模擬（無對手、greedy 出牌）</h3>
+      <div style="display:grid;grid-template-columns:3fr 2fr;gap:14px;align-items:start;">
+        <canvas id="goldfishChart" style="max-height:260px;"></canvas>
+        <div id="goldfishSummary" style="font-size:12px;"></div>
+      </div>
+      <div class="hint" style="margin-top:6px;">假設：自由 mulligan、地可 untap、ramp 咒語立即 +1 地、mana rock 下回合起 tap、Sol Ring 當回合可 tap；不考慮色 mana 與 free spells</div>
+    </div>
+
+    <div class="grid-3" id="mulliganPanel">
+      <div class="panel"><div class="big-stat-label">首 7 張 ≥ 2 地的機率</div><div class="big-stat" id="statLand2">—</div></div>
+      <div class="panel"><div class="big-stat-label">首 7 張 keepable 機率（cmc-aware）</div><div class="big-stat" id="statKeep">—</div><div class="hint" style="margin-top:6px;">2-5 有效地（含 cmc ≤ 2 mana rock）<br>+ 至少 1 張 spell cmc ≤ 地數 +1</div></div>
+      <div class="panel"><div class="big-stat-label">London mull 到 6 仍卡手的機率</div><div class="big-stat" id="statMull6">—</div></div>
+    </div>
+
+    <div class="grid-3">
+      <div class="panel">
+        <h3>Curve 健康度</h3>
+        <div id="curveStats"></div>
+      </div>
+      <div class="panel">
+        <h3>牌組功能組成</h3>
+        <div id="funcStats"></div>
+        <div class="hint" style="margin-top:8px;">基於 oracle text 的 heuristic 分類；點 ▸ 展開細項</div>
+      </div>
+      <div class="panel">
+        <h3>Mana 來源細分</h3>
+        <div id="manaSrcStats"></div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="panel">
+        <h3>類型分布</h3>
+        <div id="typeStats"></div>
+      </div>
+      <div class="panel">
+        <h3>色源檢核（land 色源數 / 該色非地需求）</h3>
+        <div id="manabaseStats"></div>
+        <div class="hint" style="margin-top:8px;">需求 = 該色所有非地卡牌的色蕊（coloured pip）總和。比值 ≥ 需求×0.9 算健康。</div>
+      </div>
+    </div>
+
+    <div class="panel" id="strategyPanel" style="display:none;border-color:var(--gold-dim);">
+      <h3 style="color:var(--gold);">⚡ 策略 & Flavor 分析</h3>
+      <div id="strategyContent"></div>
+    </div>
+
+    <div class="panel">
+      <h3>完整卡牌列表（卡名 → Scryfall；EDH → EDHREC）</h3>
+      <table id="cardsTable">
+        <thead><tr>
+          <th data-sort="qty" class="num">#</th>
+          <th data-sort="name">卡名</th>
+          <th data-sort="cmc" class="num">CMC</th>
+          <th>Pips</th>
+          <th data-sort="type">類型</th>
+          <th data-sort="rarity">稀有度</th>
+          <th>連結</th>
+        </tr></thead>
+        <tbody id="cardsTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer-note">
+    卡牌資料來自 <a href="https://scryfall.com/docs/api" target="_blank">Scryfall API</a>（免費、無金鑰、限 ~10 req/s）。本地 localStorage 快取。
+  </div>
+</div>
+
+<!-- Shared floating card preview -->
+<div id="cardPreview"><img alt="" loading="lazy"></div>
+
+<script>
+/* ================== UTIL ================== */
+const $ = (id) => document.getElementById(id);
+const setStatus = (msg, type = 'info') => {
+  const el = $('statusBar');
+  if (!msg) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="status ${type}">${msg}</div>`;
+};
+
+/* ================== TAB SWITCH ================== */
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    const panel = t.dataset.panel;
+    document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === t));
+    document.querySelectorAll('.tab-panel').forEach(p =>
+      p.classList.toggle('active', p.dataset.panel === panel));
+  });
+});
+
+/* ================== FILE DROP ================== */
+const dropZone = $('dropZone');
+const fileInput = $('fileInput');
+['dragover', 'dragenter'].forEach(ev => dropZone.addEventListener(ev, e => {
+  e.preventDefault(); dropZone.classList.add('drag-over');
+}));
+['dragleave', 'drop'].forEach(ev => dropZone.addEventListener(ev, e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+}));
+dropZone.addEventListener('drop', async e => {
+  const f = e.dataTransfer?.files?.[0];
+  if (f) await handleFile(f);
+});
+fileInput.addEventListener('change', async e => {
+  const f = e.target.files?.[0];
+  if (f) await handleFile(f);
+});
+async function handleFile(file) {
+  const text = await file.text();
+  $('pasteInput').value = text;
+  document.querySelector('.tab[data-panel="paste"]').click();
+  setStatus(`已載入 ${file.name}（${(file.size / 1024).toFixed(1)} KB）`, 'info');
+}
+
+/* ================== DECKLIST PARSER ================== */
+/**
+ * Handle Moxfield/MTGA/ManaBox formats incl. section headers:
+ *   "Commander", "Deck", "Sideboard", "Companion", "Maybeboard"
+ *
+ * Returns { main: [{qty,name}], commander: [{qty,name}] }
+ * Sections lacking explicit headers get classified as "main".
+ */
+function parseDecklist(text) {
+  const lines = text.split(/\r?\n/);
+  const sections = { main: [], commander: [], sideboard: [], maybe: [], companion: [] };
+  const lineRe = /^\s*(?:SB:\s*)?(\d+)x?\s+(.+?)(?:\s*\(([A-Z0-9]+)\)(?:\s+\S+)?)?\s*$/i;
+  let cur = 'main';
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || line.startsWith('//') || /^name:/i.test(line) || /^about\b/i.test(line)) continue;
+    if (/^deck\b/i.test(line)) { cur = 'main'; continue; }
+    if (/^commander\b/i.test(line)) { cur = 'commander'; continue; }
+    if (/^sideboard\b/i.test(line)) { cur = 'sideboard'; continue; }
+    if (/^companion\b/i.test(line)) { cur = 'companion'; continue; }
+    if (/^maybeboard\b/i.test(line)) { cur = 'maybe'; continue; }
+    const m = lineRe.exec(line);
+    if (!m) continue;
+    const qty = parseInt(m[1], 10);
+    const name = m[2].replace(/\s+/g, ' ').trim();
+    if (qty > 0 && name) sections[cur].push({ qty, name });
+  }
+  const merge = (arr) => {
+    const by = new Map();
+    for (const { qty, name } of arr) by.set(name, (by.get(name) || 0) + qty);
+    return [...by.entries()].map(([name, qty]) => ({ name, qty }));
+  };
+  return { main: merge(sections.main), commander: merge(sections.commander) };
+}
+
+/* ================== MOXFIELD FETCH ================== */
+function extractMoxfieldId(url) {
+  const m = /moxfield\.com\/decks\/([A-Za-z0-9_-]+)/i.exec(url);
+  return m ? m[1] : null;
+}
+async function fetchMoxfieldDeck(id) {
+  const url = `https://api.moxfield.com/v2/decks/all/${id}`;
+  const tryFetch = async (target) => {
+    const r = await fetch(target);
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    return r.json();
+  };
+  try { return await tryFetch(url); }
+  catch (e) {
+    setStatus(`Moxfield 直連失敗（${e.message}），改走 corsproxy.io…`, 'info');
+    return tryFetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+  }
+}
+function moxfieldToList(json) {
+  // v2 API: mainboard is { cardName: { quantity, card: {...} }, ... }
+  // Preserve scryfall_id so we can ask Scryfall for the exact printing the
+  // player chose in Moxfield — otherwise we'd get the default printing and
+  // the displayed art wouldn't match the deck.
+  const collect = (obj) => {
+    if (!obj) return [];
+    return Object.entries(obj).map(([name, entry]) => ({
+      name,
+      qty: entry.quantity || 1,
+      scryfallId: entry.card?.scryfall_id || null,
+    }));
+  };
+  return {
+    main: collect(json.mainboard || json.main),
+    commander: collect(json.commanders),
+    name: json.name || 'Moxfield Deck',
+  };
+}
+
+/* ================== SCRYFALL ================== */
+// v2 bumps key so entries cached under old "name-only" shape (which could
+// return wrong printings) get re-fetched with proper per-printing resolution.
+const CACHE_KEY = 'mtg_analyzer_card_cache_v2';
+const loadCache = () => { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch { return {}; } };
+const saveCache = (c) => localStorage.setItem(CACHE_KEY, JSON.stringify(c));
+
+// Cache key: prefer the specific printing (scryfall_id) so different art/sets
+// of the same-named card don't clobber each other. Fall back to "name:<lc>"
+// when the entry came from pasted text without a Scryfall id.
+const cacheKeyFor = (entry) =>
+  entry.scryfallId ? `id:${entry.scryfallId}` : `name:${entry.name.toLowerCase()}`;
+
+async function resolveCards(list) {
+  const cache = loadCache();
+  const resolved = {};
+  const missing = [];
+
+  for (const x of list) {
+    const key = cacheKeyFor(x);
+    const hit = cache[key];
+    if (hit) resolved[x.name] = hit;
+    else missing.push(x);
+  }
+
+  if (missing.length === 0) return resolved;
+
+  const batches = [];
+  for (let i = 0; i < missing.length; i += 75) batches.push(missing.slice(i, i + 75));
+
+  for (let bi = 0; bi < batches.length; bi++) {
+    const batch = batches[bi];
+    setStatus(`查詢 Scryfall... ${bi + 1}/${batches.length} 批（每批最多 75 張）`, 'info');
+    // Use {id: scryfall_id} for entries Moxfield gave us an id for (exact
+    // printing), else fall back to {name} (default printing).
+    const identifiers = batch.map(x => x.scryfallId ? { id: x.scryfallId } : { name: x.name });
+    const res = await fetch('https://api.scryfall.com/cards/collection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifiers }),
+    });
+    if (!res.ok) throw new Error(`Scryfall ${res.status}`);
+    const data = await res.json();
+    for (const c of (data.data || [])) {
+      // Match back to the original batch entry by scryfall_id first, then by name.
+      const orig = batch.find(x =>
+        (x.scryfallId && x.scryfallId === c.id) ||
+        (!x.scryfallId && (
+          x.name.toLowerCase() === c.name.toLowerCase() ||
+          c.name.toLowerCase().startsWith(x.name.toLowerCase() + ' //')
+        ))
+      );
+      if (orig) {
+        cache[cacheKeyFor(orig)] = c;
+        resolved[orig.name] = c;
+      } else {
+        // Defensive fallback — cache under the returned name too.
+        cache[`name:${c.name.toLowerCase()}`] = c;
+        resolved[c.name] = c;
+      }
+    }
+    for (const np of (data.not_found || [])) {
+      console.warn('not found:', np);
+    }
+    saveCache(cache);
+    if (bi < batches.length - 1) await new Promise(r => setTimeout(r, 120));
+  }
+  setStatus('');
+  return resolved;
+}
+
+/* ================== GAME CHANGER LIST ================== */
+// WOTC's official Game Changer list (Commander Bracket System, 2024). Scryfall
+// tracks it via `is:gamechanger`. Cached 24h in localStorage so repeated
+// analyses don't hit Scryfall again.
+const GC_CACHE_KEY = 'mtg_analyzer_game_changers_v1';
+const GC_TTL_MS = 24 * 3600 * 1000;
+
+async function fetchGameChangers() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(GC_CACHE_KEY) || 'null');
+    if (cached && Array.isArray(cached.names) && Date.now() - cached.ts < GC_TTL_MS) {
+      return new Set(cached.names);
+    }
+  } catch {}
+  const names = [];
+  try {
+    let url = 'https://api.scryfall.com/cards/search?q=is%3Agamechanger&unique=cards';
+    while (url) {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`Scryfall ${r.status}`);
+      const j = await r.json();
+      for (const c of (j.data || [])) names.push(c.name.toLowerCase());
+      url = j.has_more ? j.next_page : null;
+      if (url) await new Promise(res => setTimeout(res, 120));
+    }
+    localStorage.setItem(GC_CACHE_KEY, JSON.stringify({ ts: Date.now(), names }));
+  } catch (e) {
+    console.warn('Game Changer fetch failed; power-level scoring will skip GC signal', e);
+  }
+  return new Set(names);
+}
+
+/* ================== SCRYFALL SEARCH CACHE ================== */
+const SCRY_CACHE_KEY = 'mtg_analyzer_scry_search_v1';
+let _scryCache = null;
+function _loadScry() {
+  if (_scryCache) return _scryCache;
+  try { _scryCache = JSON.parse(localStorage.getItem(SCRY_CACHE_KEY) || '{}'); }
+  catch { _scryCache = {}; }
+  return _scryCache;
+}
+function _saveScry() { localStorage.setItem(SCRY_CACHE_KEY, JSON.stringify(_scryCache)); }
+
+async function fetchScrySearch(query, orderParam = '') {
+  const cache = _loadScry();
+  const key = query + '|' + orderParam;
+  if (cache[key]) return cache[key];
+  let url = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=cards`;
+  if (orderParam) url += '&' + orderParam;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) { cache[key] = { data: [] }; _saveScry(); return cache[key]; }
+    const j = await r.json();
+    // Compact — only fields we need
+    const compact = {
+      total: j.total_cards || 0,
+      data: (j.data || []).slice(0, 30).map(c => ({
+        name: c.name,
+        rank: c.edhrec_rank || 999999,
+        imgUrl: c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || '',
+      })),
+    };
+    cache[key] = compact;
+    _saveScry();
+    return compact;
+  } catch { return { data: [] }; }
+}
+
+// === FLAVOR THEMES ===
+// Each theme = multiple signals. Card gets a score from each signal that matches.
+//   name keyword:    2.5pt  (bold proof — card literally named after it)
+//   creature subtype: 3.0pt (tribal fit)
+//   token produced:  2.0pt  (produces a theme-type token)
+//   art tag:         1.25pt (Scryfall community art tag match)
+//   flavor text:     0.75pt (flavor prose mentions theme)
+const FLAVOR_THEMES = [
+  { id: 'shark',     label: '🦈 Shark / 海洋掠食',    nameWords: ['shark'],                         subtypes: ['Shark'],       tokenTypes: ['Shark'],     artTags: ['shark','ocean'], flavorWords: ['shark','fin','jaws','devour'] },
+  { id: 'dragon',    label: '🐉 Dragon',              nameWords: ['dragon','wyrm'],                subtypes: ['Dragon'],      tokenTypes: ['Dragon'],    artTags: ['dragon'],        flavorWords: ['dragon','wyrm','scale','flame'] },
+  { id: 'angel',     label: '👼 Angel / 神聖',         nameWords: ['angel','seraph'],               subtypes: ['Angel'],       tokenTypes: ['Angel'],     artTags: ['angel'],         flavorWords: ['angel','holy','heaven','celestial'] },
+  { id: 'demon',     label: '😈 Demon / 地獄',         nameWords: ['demon','devil','fiend'],        subtypes: ['Demon'],       tokenTypes: ['Demon'],     artTags: ['demon'],         flavorWords: ['demon','hell','damnation','infernal'] },
+  { id: 'vampire',   label: '🧛 Vampire',              nameWords: ['vampire','sanguine'],           subtypes: ['Vampire'],     tokenTypes: ['Vampire'],   artTags: ['vampire'],       flavorWords: ['vampire','blood','thirst','fang'] },
+  { id: 'zombie',    label: '🧟 Zombie / 不死',        nameWords: ['zombie','undead','ghoul'],      subtypes: ['Zombie'],      tokenTypes: ['Zombie'],    artTags: ['zombie','skeleton'], flavorWords: ['undead','grave','rot','corpse'] },
+  { id: 'elf',       label: '🧝 Elf / 森林',           nameWords: ['elf','elven','elvish'],         subtypes: ['Elf'],         tokenTypes: ['Elf'],       artTags: [],                flavorWords: ['elf','forest','canopy'] },
+  { id: 'goblin',    label: '👺 Goblin',                nameWords: ['goblin'],                       subtypes: ['Goblin'],      tokenTypes: ['Goblin'],    artTags: [],                flavorWords: ['goblin','horde','raid'] },
+  { id: 'phyrexian', label: '🦠 Phyrexian / 機械瘟疫', nameWords: ['phyrexian','compleat'],         subtypes: ['Phyrexian'],   tokenTypes: [],            artTags: ['phyrexian'],     flavorWords: ['phyrexian','compleat','oil','new phyrexia'] },
+  { id: 'pirate',    label: '🏴‍☠️ Pirate',             nameWords: ['pirate','captain','corsair','marauder'], subtypes: ['Pirate'], tokenTypes: ['Pirate'],    artTags: ['pirate','ship'], flavorWords: ['pirate','plunder','ship','ixalan','treasure'] },
+  { id: 'knight',    label: '⚔️ Knight',                nameWords: ['knight','paladin','sir ','cavalier'], subtypes: ['Knight'], tokenTypes: ['Knight'],    artTags: ['knight'],        flavorWords: ['knight','chivalry','honor','valor'] },
+  { id: 'wizard',    label: '🧙 Wizard / 法術',         nameWords: ['wizard','mage','archmage'],     subtypes: ['Wizard'],      tokenTypes: [],            artTags: [],                flavorWords: ['wizard','arcane','spell','mystic'] },
+  { id: 'dinosaur',  label: '🦖 Dinosaur',              nameWords: ['raptor','saurian','dinosaur'],  subtypes: ['Dinosaur'],    tokenTypes: ['Dinosaur'],  artTags: [],                flavorWords: ['dinosaur','roar','prehistoric'] },
+  { id: 'cat',       label: '🐈 Cat',                   nameWords: ['lion','tiger','panther','nekoru'], subtypes: ['Cat'],      tokenTypes: ['Cat'],       artTags: ['cat'],           flavorWords: ['cat','feline','prowl','claw'] },
+  { id: 'eldrazi',   label: '👁️ Eldrazi',               nameWords: ['eldrazi'],                      subtypes: ['Eldrazi'],     tokenTypes: ['Eldrazi Scion','Eldrazi Spawn'], artTags: ['eye'], flavorWords: ['oblivion','annihilator','titan'] },
+  { id: 'ooze',      label: '🫧 Ooze / 粘液',           nameWords: ['slime','ooze','sludge'],        subtypes: ['Ooze'],        tokenTypes: ['Ooze'],      artTags: [],                flavorWords: ['ooze','slime','ichor'] },
+  { id: 'merfolk',   label: '🧜 Merfolk',               nameWords: ['merfolk','triton','siren'],     subtypes: ['Merfolk'],     tokenTypes: ['Merfolk'],   artTags: ['ocean'],         flavorWords: ['merfolk','triton','sea','wave'] },
+  { id: 'spirit',    label: '👻 Spirit / 靈體',         nameWords: ['spirit','ghost','wraith'],      subtypes: ['Spirit'],      tokenTypes: ['Spirit'],    artTags: [],                flavorWords: ['spirit','ghost','specter','haunt'] },
+  { id: 'treasure',  label: '💰 Treasure / 寶藏',       nameWords: ['gold','coin','riches'],         subtypes: [],              tokenTypes: ['Treasure'],  artTags: [],                flavorWords: ['treasure','gold','plunder','wealth'] },
+  { id: 'wolf',      label: '🐺 Wolf / Werewolf',       nameWords: ['wolf','lupine','werewolf'],     subtypes: ['Wolf','Werewolf'], tokenTypes: ['Wolf','Werewolf'], artTags: ['wolf'],   flavorWords: ['wolf','pack','howl','full moon'] },
+];
+
+// Score a single card against a flavor theme using 5 signal types (excl. art tag, added async)
+function scoreCardForFlavor(card, theme) {
+  const name = (card.name || '').toLowerCase();
+  const typeLine = card.type_line || '';
+  const oracle = ((card.oracle_text || '') + ' ' +
+    (card.card_faces || []).map(f => (f.oracle_text || '')).join(' ')).toLowerCase();
+  const flavor = ((card.flavor_text || '') + ' ' +
+    (card.card_faces || []).map(f => (f.flavor_text || '')).join(' ')).toLowerCase();
+  let score = 0;
+  const hits = [];
+
+  if (theme.nameWords.some(w => name.includes(w.toLowerCase()))) {
+    score += 2.5; hits.push('name');
+  }
+  for (const st of theme.subtypes) {
+    const re = new RegExp(`\\b${st}\\b`, 'i');
+    if (re.test(typeLine)) { score += 3.0; hits.push('subtype'); break; }
+  }
+  for (const tt of theme.tokenTypes) {
+    const re = new RegExp(`create (?:a|an|one|two|three|four|five|\\d+|x|that many)[^.]{0,80}?\\b${tt}\\b`, 'i');
+    if (re.test(oracle)) { score += 2.0; hits.push('token'); break; }
+  }
+  if (flavor && theme.flavorWords.some(w => flavor.includes(w.toLowerCase()))) {
+    score += 0.75; hits.push('flavor');
+  }
+  return { score, hits };
+}
+
+function analyzeDeckFlavor(cards, commanders, artTagIndex) {
+  const results = [];
+  for (const theme of FLAVOR_THEMES) {
+    let deckScore = 0;
+    let commanderScore = 0;
+    const cardHits = [];
+    let commanderHit = false;
+    const scoreOne = ({ qty, card }, isCmd) => {
+      const s = scoreCardForFlavor(card, theme);
+      const key = card.name.toLowerCase().split(' //')[0].trim();
+      const tags = artTagIndex.get(key);
+      if (tags && theme.artTags.some(t => tags.has(t))) {
+        s.score += 1.25;
+        s.hits.push('art');
+      }
+      if (s.score > 0) {
+        cardHits.push({ name: card.name, qty, score: s.score, hits: s.hits, isCommander: isCmd });
+        if (isCmd) { commanderScore += s.score; commanderHit = true; }
+        else deckScore += s.score * qty;
+      }
+    };
+    for (const c of cards) scoreOne(c, false);
+    for (const c of commanders) scoreOne(c, true);
+    if (deckScore + commanderScore > 0) {
+      cardHits.sort((a, b) => b.score - a.score);
+      // Per-dimension counts for display
+      const dimCounts = { name: 0, subtype: 0, token: 0, art: 0, flavor: 0 };
+      for (const h of cardHits) for (const d of h.hits) dimCounts[d] = (dimCounts[d] || 0) + h.qty;
+      results.push({
+        theme, deckScore, commanderScore,
+        totalScore: deckScore + commanderScore * 1.5, // commander weighted
+        cardHits, commanderHit, dimCounts,
+      });
+    }
+  }
+  results.sort((a, b) => b.totalScore - a.totalScore);
+  return results;
+}
+
+async function fetchFlavorSuggestions(theme, colorIdentity, existingKeys, inclusionMap = null, limit = 60) {
+  // Subtype-first: when a creature subtype exists it's the strongest signal, so
+  // query on it alone. Only fall back to token/name for themes without a
+  // subtype (e.g. Treasure). atag is excluded — it's too broad for suggestions
+  // (atag:ocean pulls every island, atag:ship pulls generic lands/staples) and
+  // combined with order=edhrec it floods the result with color-pie staples.
+  const parts = [];
+  if (theme.subtypes.length) {
+    for (const sub of theme.subtypes) parts.push(`t:${sub.toLowerCase().replace(/\s+/g, '+')}`);
+  } else {
+    for (const tt of theme.tokenTypes) parts.push(`o:"${tt.toLowerCase()} token"`);
+    for (const nw of theme.nameWords) parts.push(`name:${nw.replace(/\s+/g, '')}`);
+  }
+  if (parts.length === 0) return [];
+  const ci = colorIdentity.length ? ` id<=${colorIdentity.join('').toLowerCase()}` : '';
+  const q = `(${parts.join(' OR ')}) f:commander${ci}`;
+  const res = await fetchScrySearch(q, 'order=edhrec');
+  const out = [];
+  for (const c of res.data) {
+    const key = c.name.toLowerCase().split(' //')[0].trim();
+    if (existingKeys.has(key)) continue;
+    const incl = inclusionMap?.get(key);
+    out.push({ ...c, inclusion: incl ? incl.inclusion : null });
+    if (out.length >= limit) break;
+  }
+  // Rank: cards that commander's players actually include first (desc by
+  // inclusion %), rest keep Scryfall's edhrec order as a weak signal.
+  out.sort((a, b) => {
+    const aHas = a.inclusion != null, bHas = b.inclusion != null;
+    if (aHas && !bHas) return -1;
+    if (!aHas && bHas) return 1;
+    if (aHas && bHas) return b.inclusion - a.inclusion;
+    return 0;
+  });
+  return out;
+}
+
+// Curated art tags relevant to Commander flavor themes
+const COMMON_ART_TAGS = [
+  { tag: 'shark',     label: '🦈 Shark' },
+  { tag: 'dragon',    label: '🐉 Dragon' },
+  { tag: 'angel',     label: '👼 Angel' },
+  { tag: 'demon',     label: '😈 Demon' },
+  { tag: 'skeleton',  label: '💀 Skeleton' },
+  { tag: 'cat',       label: '🐈 Cat' },
+  { tag: 'dog',       label: '🐕 Dog' },
+  { tag: 'wolf',      label: '🐺 Wolf' },
+  { tag: 'bird',      label: '🦅 Bird' },
+  { tag: 'snake',     label: '🐍 Snake' },
+  { tag: 'moon',      label: '🌙 Moon' },
+  { tag: 'fire',      label: '🔥 Fire' },
+  { tag: 'ocean',     label: '🌊 Ocean' },
+  { tag: 'pirate',    label: '🏴‍☠️ Pirate' },
+  { tag: 'knight',    label: '⚔️ Knight' },
+  { tag: 'zombie',    label: '🧟 Zombie' },
+  { tag: 'vampire',   label: '🧛 Vampire' },
+  { tag: 'phyrexian', label: '🦠 Phyrexian' },
+  { tag: 'eye',       label: '👁️ Eye' },
+  { tag: 'phoenix',   label: '🔥 Phoenix' },
+];
+
+async function detectArtTags(deckNameSet) {
+  const perTag = [];
+  for (let i = 0; i < COMMON_ART_TAGS.length; i += 4) {
+    const batch = COMMON_ART_TAGS.slice(i, i + 4);
+    const results = await Promise.all(batch.map(async ({ tag, label }) => {
+      const res = await fetchScrySearch(`atag:${tag}`);
+      const tagSet = new Set(res.data.map(c => c.name.toLowerCase().split(' //')[0].trim()));
+      const matched = [];
+      for (const n of deckNameSet) if (tagSet.has(n)) matched.push(n);
+      return { tag, label, count: matched.length, matched, total: res.total };
+    }));
+    perTag.push(...results);
+    if (i + 4 < COMMON_ART_TAGS.length) await new Promise(r => setTimeout(r, 140));
+  }
+  const index = new Map();
+  for (const r of perTag) {
+    for (const n of r.matched) {
+      if (!index.has(n)) index.set(n, new Set());
+      index.get(n).add(r.tag);
+    }
+  }
+  const summary = perTag.filter(h => h.count >= 2).sort((a, b) => b.count - a.count).slice(0, 8);
+  return { summary, index };
+}
+
+async function fetchTribalTopCards(subtype, colorIdentity, existingKeys) {
+  const ci = colorIdentity.length ? ` id<=${colorIdentity.join('').toLowerCase()}` : '';
+  const q = `t:${subtype.toLowerCase()} f:commander${ci}`;
+  const res = await fetchScrySearch(q, 'order=edhrec');
+  const out = [];
+  for (const c of res.data) {
+    const key = c.name.toLowerCase().split(' //')[0].trim();
+    if (existingKeys.has(key)) continue;
+    out.push(c);
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
+/* ================== EDHREC API ================== */
+async function fetchEdhrecCommander(slug) {
+  const url = `https://json.edhrec.com/pages/commanders/${slug}.json`;
+  const tryUrl = async (target) => {
+    const r = await fetch(target);
+    if (!r.ok) throw new Error(`${r.status}`);
+    return r.json();
+  };
+  try { return await tryUrl(url); }
+  catch (e) {
+    // CORS or 404 fallback
+    return tryUrl(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+  }
+}
+
+function extractEdhrecThemes(json, commanderSlug) {
+  // EDHREC exposes themes as panels.taglinks: [{ count, slug, value }, ...].
+  // The theme JSON URL is /pages/commanders/<cmdSlug>/<themeSlug>.json, so we
+  // synthesise the href rather than expecting one in the object.
+  const taglinks = json?.panels?.taglinks || [];
+  return taglinks
+    .filter(t => t && t.slug && t.value)
+    .map(t => ({
+      name: t.value,
+      slug: t.slug,
+      href: `/commanders/${commanderSlug}/${t.slug}`,
+      count: t.count || 0,
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 15);
+}
+
+function extractEdhrecRecs(json, existingKeys) {
+  const lists = json?.container?.json_dict?.cardlists || [];
+  const seenTop = new Set();
+  const seenSyn = new Set();
+  // Collected first, filtered later to compute hit rate
+  const allTop = [];
+  const allSyn = [];
+  for (const l of lists) {
+    const tag = (l.tag || '').toLowerCase();
+    const header = (l.header || '').toLowerCase();
+    const isTop = tag === 'topcards' || header.includes('top cards');
+    const isSyn = tag === 'highsynergycards' || header.includes('high synergy');
+    if (!isTop && !isSyn) continue;
+    for (const cv of (l.cardviews || [])) {
+      const name = cv.name || '';
+      if (!name) continue;
+      const key = name.toLowerCase().split(' //')[0].trim();
+      const inclusion = cv.potential_decks
+        ? (cv.num_decks / cv.potential_decks)
+        : (typeof cv.inclusion === 'number' ? cv.inclusion : 0);
+      const rec = {
+        name, key,
+        inclusion,
+        synergy: cv.synergy || 0,
+        numDecks: cv.num_decks || 0,
+        slug: cv.sanitized || edhrecSlug(name),
+        hit: existingKeys.has(key),
+      };
+      if (isTop && !seenTop.has(key)) { allTop.push(rec); seenTop.add(key); }
+      if (isSyn && !seenSyn.has(key)) { allSyn.push(rec); seenSyn.add(key); }
+    }
+  }
+  allTop.sort((a, b) => b.inclusion - a.inclusion);
+  allSyn.sort((a, b) => b.synergy - a.synergy);
+
+  // Top coverage: restrict to the top N staples for "conformity score"
+  const topN = 20;
+  const topStaples = allTop.slice(0, topN);
+  const topHits = topStaples.filter(r => r.hit);
+  const topMissing = topStaples.filter(r => !r.hit);
+  const synHits = allSyn.slice(0, 20).filter(r => r.hit);
+  const synMissing = allSyn.filter(r => !r.hit).slice(0, 15);
+
+  return {
+    topMissing: topMissing.slice(0, 15),
+    topHits,
+    topStapleSize: topStaples.length,
+    synergyMissing: synMissing,
+    synergyHits: synHits,
+  };
+}
+
+// Build a map of every card EDHREC lists under this commander (across all
+// cardlists: topcards/highsynergy/creatures/artifacts/lands/...), keyed by
+// lowercase name → inclusion %. Used to re-rank Scryfall flavor candidates
+// against "what players of THIS commander actually include".
+function buildEdhrecInclusionMap(json) {
+  const map = new Map();
+  const lists = json?.container?.json_dict?.cardlists || [];
+  for (const l of lists) {
+    for (const cv of (l.cardviews || [])) {
+      const name = cv.name || '';
+      if (!name) continue;
+      const key = name.toLowerCase().split(' //')[0].trim();
+      const inclusion = cv.potential_decks
+        ? (cv.num_decks / cv.potential_decks)
+        : (typeof cv.inclusion === 'number' ? cv.inclusion : 0);
+      const prev = map.get(key);
+      if (!prev || inclusion > prev.inclusion) {
+        map.set(key, {
+          name, inclusion,
+          numDecks: cv.num_decks || 0,
+          synergy: cv.synergy || 0,
+          slug: cv.sanitized || edhrecSlug(name),
+        });
+      }
+    }
+  }
+  return map;
+}
+
+// Fetch an EDHREC sub-page by relative href (e.g. "/commanders/brallin/theme").
+async function fetchEdhrecPath(href) {
+  const path = href.startsWith('http') ? href.replace(/^https?:\/\/edhrec\.com/, '') : href;
+  const clean = path.endsWith('/') ? path.slice(0, -1) : path;
+  const url = `https://json.edhrec.com/pages${clean}.json`;
+  const tryUrl = async (t) => {
+    const r = await fetch(t);
+    if (!r.ok) throw new Error(`${r.status}`);
+    return r.json();
+  };
+  try { return await tryUrl(url); }
+  catch { return tryUrl(`https://corsproxy.io/?${encodeURIComponent(url)}`); }
+}
+
+// Pull top N unique cards from an EDHREC page JSON (prioritising topcards +
+// highsynergycards, then falling back to any remaining cardlist).
+function extractTopCards(json, limit = 30) {
+  const lists = json?.container?.json_dict?.cardlists || [];
+  const seen = new Set();
+  const out = [];
+  const priority = ['topcards', 'highsynergycards'];
+  const pushFrom = (cv) => {
+    const name = cv.name || '';
+    const key = name.toLowerCase().split(' //')[0].trim();
+    if (!name || seen.has(key)) return;
+    seen.add(key);
+    const inclusion = cv.potential_decks ? cv.num_decks / cv.potential_decks : (cv.inclusion || 0);
+    out.push({
+      name, key, inclusion,
+      synergy: cv.synergy || 0,
+      numDecks: cv.num_decks || 0,
+      slug: cv.sanitized || edhrecSlug(name),
+    });
+  };
+  for (const l of lists) {
+    if (!priority.includes((l.tag || '').toLowerCase())) continue;
+    for (const cv of (l.cardviews || [])) {
+      pushFrom(cv);
+      if (out.length >= limit) return out;
+    }
+  }
+  for (const l of lists) {
+    for (const cv of (l.cardviews || [])) {
+      pushFrom(cv);
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
+}
+
+// How much of a theme's top cards does this deck already play?
+// Hit count drives ranking; weighted uses inclusion so a hit on a 90%-include
+// card counts more than a hit on a 15%-include fringe card.
+function scoreThemeOverlap(topCards, existingKeys) {
+  const hits = [];
+  let weighted = 0;
+  for (const c of topCards) {
+    if (existingKeys.has(c.key)) {
+      hits.push(c);
+      weighted += Math.max(c.inclusion || 0, 0.1);
+    }
+  }
+  return { hits, count: hits.length, weighted };
+}
+
+/* ================== EDHREC URL HELPERS ================== */
+function edhrecSlug(name) {
+  // strip after //, lowercase, remove apostrophes/commas/periods, then non-[a-z0-9] → dash
+  const front = name.split('//')[0].trim().toLowerCase();
+  return front
+    .replace(/[’',.:;!?"`]/g, '')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+const edhrecCommanderUrl = (name) => `https://edhrec.com/commanders/${edhrecSlug(name)}`;
+const edhrecCardUrl = (name) => `https://edhrec.com/cards/${edhrecSlug(name)}`;
+
+/* ================== ANALYSIS ================== */
+const COLOR_CODES = ['W', 'U', 'B', 'R', 'G'];
+const COLOR_NAMES = { W: '白', U: '藍', B: '黑', R: '紅', G: '綠', C: '無色' };
+const COLOR_HEX = {
+  W: '#f9f7e8', U: '#4a8fcf', B: '#4a4855',
+  R: '#d95a4a', G: '#3bb273', C: '#a0a0b0', M: '#e2c275'
+};
+
+function isLand(c) { return c.type_line && /\bLand\b/i.test(c.type_line); }
+
+function _oracle(c) {
+  // joins both faces of DFCs for tag matching
+  const t = (c.oracle_text || '').toLowerCase();
+  const faces = (c.card_faces || []).map(f => (f.oracle_text || '').toLowerCase()).join(' ');
+  return t + ' ' + faces;
+}
+
+function isManaRock(c) {
+  if (!c.type_line || !/\bArtifact\b/i.test(c.type_line)) return false;
+  return /\{t\}: add/i.test(_oracle(c)) || /add (one|two|three) mana/i.test(_oracle(c));
+}
+
+// ==== Power-level signal sets (curated, v1) ====
+const FAST_MANA = new Set([
+  'sol ring', 'mana crypt', 'jeweled lotus', 'mana vault', 'grim monolith',
+  'chrome mox', 'mox diamond', 'mox opal', 'mox amber', 'mox tantalite',
+  'lotus petal', 'lion\'s eye diamond', "lion’s eye diamond",
+  'ancient tomb', "gaea's cradle", 'gaea’s cradle',
+  'city of traitors', 'mishra\'s workshop',
+]);
+const FREE_INTERACTION = new Set([
+  'force of will', 'force of negation', 'fierce guardianship',
+  'deflecting swat', 'deadly rollick', 'pact of negation',
+  'misdirection', 'daze', 'flusterstorm', 'mental misstep',
+  'foil', 'commandeer', 'subtlety', 'solitude',
+  'endurance', 'grief', 'fury',
+]);
+// ==== Commander strategy keyword detection ====
+// Each entry: regex against commander oracle text → label + hint + curated suggestions.
+const STRATEGY_KEYWORDS = [
+  { re: /proliferate/i, label: 'Proliferate', theme: 'proliferate',
+    hint: '增生所有 counter（+1/+1、loyalty、poison、charge…）',
+    suggestions: ['Evolution Sage', "Karn's Bastion", 'Flux Channeler', 'Inexorable Tide', 'Contagion Engine', 'Thrummingbird', 'Viral Drake', 'Tekuthal, Inquiry Dominus'] },
+  { re: /\+1\/\+1 counter/i, label: '+1/+1 Counters', theme: '+1-+1-counters',
+    hint: '堆疊 counter 走大生物',
+    suggestions: ['Hardened Scales', 'Doubling Season', 'The Ozolith', 'Branching Evolution', 'Conclave Mentor', 'Kalonian Hydra'] },
+  { re: /toxic|infect|poison counter/i, label: 'Toxic / Infect', theme: 'toxic',
+    hint: 'Poison counter 走 10 毒取勝',
+    suggestions: ['Bloated Contaminator', 'Venerated Rotpriest', 'Prologue to Phyresis', 'Ichor Drinker', 'Glistening Oil'] },
+  { re: /whenever .* dies|sacrifice (a|another) creature/i, label: 'Aristocrats', theme: 'aristocrats',
+    hint: '生物進墳觸發收益',
+    suggestions: ['Blood Artist', 'Zulaport Cutthroat', 'Viscera Seer', 'Grave Pact', 'Dictate of Erebos', 'Mayhem Devil', 'Pitiless Plunderer'] },
+  { re: /from (your |a )?graveyard to your hand|from (your |a )?graveyard onto the battlefield|return .* from (your |a )?graveyard/i,
+    label: 'Reanimator / Graveyard', theme: 'reanimator',
+    hint: '墳場當第二手區',
+    suggestions: ['Reanimate', 'Animate Dead', 'Entomb', 'Buried Alive', 'Victimize', 'Unmarked Grave', 'Sevinne\'s Reclamation'] },
+  { re: /create .* (token|tokens)/i, label: 'Token Swarm', theme: 'tokens',
+    hint: '複製衍生物走寬',
+    suggestions: ['Anointed Procession', 'Parallel Lives', 'Doubling Season', 'Second Harvest', 'Divine Visitation'] },
+  { re: /artifacts? you control|artifact (creature|spell)|metalcraft|affinity/i, label: 'Artifact Matters', theme: 'artifacts',
+    hint: '法器為軸心',
+    suggestions: ['Urza, Lord High Artificer', 'Sai, Master Thopterist', "Krark-Clan Ironworks", 'Saheeli, the Gifted', 'Foundry Inspector'] },
+  { re: /enchantments? you control|constellation/i, label: 'Enchantress', theme: 'enchantments',
+    hint: '結界主題',
+    suggestions: ["Enchantress's Presence", "Sythis, Harvest's Hand", 'Setessan Champion', 'Argothian Enchantress', 'Eidolon of Blossoms'] },
+  { re: /mill|into (their|that player's|its owner's) graveyard from the top/i, label: 'Mill', theme: 'mill',
+    hint: '磨牌庫',
+    suggestions: ['Mindcrank', 'Bruvac the Grandiloquent', 'Fleet Swallower', 'Traumatize', 'Altar of Dementia'] },
+  { re: /you gain .* life|lifelink|whenever you gain life/i, label: 'Lifegain', theme: 'lifegain',
+    hint: '生命值作為資源',
+    suggestions: ['Karlov of the Ghost Council', 'Ageless Entity', 'Sanguine Bond', 'Exquisite Blood', 'Archangel of Thune'] },
+  { re: /exile .* return .* to the battlefield|enters the battlefield|flicker|blink/i, label: 'Flicker / ETB', theme: 'flicker',
+    hint: '進戰場觸發重複',
+    suggestions: ["Conjurer's Closet", 'Eldrazi Displacer', 'Deadeye Navigator', 'Ephemerate', 'Flickerwisp', 'Panharmonicon'] },
+  { re: /counter target (spell|ability)/i, label: 'Counters (反制)', theme: 'control',
+    hint: '反制咒語戰略',
+    suggestions: ['Counterspell', 'Force of Will', 'Mana Drain', 'Swan Song', 'Arcane Denial', 'Fierce Guardianship'] },
+  { re: /lands you control|land .* enters|additional land|extra land/i, label: 'Lands Matter', theme: 'landfall',
+    hint: '地作為資源',
+    suggestions: ['Life from the Loam', 'Crucible of Worlds', 'Ramunap Excavator', 'Azusa, Lost but Seeking', 'Scute Swarm', 'Lotus Cobra'] },
+  { re: /voltron|equipment|equipped creature/i, label: 'Voltron / Equipment', theme: 'voltron',
+    hint: '堆強化單卡生物',
+    suggestions: ['Sword of Feast and Famine', "Sigarda's Aid", 'Shadowspear', 'Kaldra Compleat', 'Stoneforge Mystic', 'Puresteel Paladin'] },
+  { re: /whenever you cast .* instant or sorcery|noncreature spell|storm|prowess/i, label: 'Spellslinger', theme: 'spellslinger',
+    hint: '非生物咒語為核心',
+    suggestions: ['Young Pyromancer', 'Guttersnipe', 'Niv-Mizzet, Parun', "Talrand, Sky Summoner", 'Bonus Round'] },
+  { re: /scry|surveil/i, label: 'Scry / Surveil', theme: 'card-draw',
+    hint: '牌庫操控',
+    suggestions: ['Brainstorm', 'Preordain', 'Ponder', 'Serum Visions', 'Opt'] },
+];
+
+// Creature subtypes likely to be tribal archetypes
+const TRIBAL_TYPES = new Set([
+  // Classic races
+  'Angel', 'Demon', 'Dragon', 'Vampire', 'Zombie', 'Elf', 'Goblin',
+  'Merfolk', 'Wizard', 'Knight', 'Human', 'Warrior', 'Soldier',
+  'Spirit', 'Elemental', 'Cat', 'Rat', 'Dinosaur', 'Pirate', 'Sliver',
+  'Eldrazi', 'Phyrexian', 'Horror', 'Beast', 'Hydra', 'Treefolk',
+  'Giant', 'Ninja', 'Samurai', 'Faerie', 'Shapeshifter', 'Kor',
+  'Dwarf', 'Cleric', 'Rogue', 'Druid', 'Shaman', 'Assassin',
+  // More creature types worth surfacing
+  'Shark', 'Bird', 'Whale', 'Octopus', 'Fish', 'Serpent', 'Kraken',
+  'Werewolf', 'Wolf', 'Bear', 'Wurm', 'Snake', 'Spider', 'Insect',
+  'Fungus', 'Saproling', 'Plant', 'Minotaur', 'Ogre', 'Orc', 'Troll',
+  'Phoenix', 'Griffin', 'Sphinx', 'Unicorn', 'Horse',
+  'Construct', 'Golem', 'Thopter', 'Servo', 'Myr', 'Artificer',
+  'Scout', 'Archer', 'Berserker', 'Monk', 'Mystic', 'Noble',
+  'Dryad', 'Centaur', 'Minion', 'Demigod', 'God',
+  'Avatar', 'Illusion', 'Nightmare', 'Djinn', 'Efreet',
+  'Ooze', 'Slug', 'Squid', 'Turtle', 'Crab', 'Fox', 'Dog', 'Mouse',
+]);
+
+// Known 2-card combo pairs. All pieces present → detected + power bonus.
+const KNOWN_COMBOS = [
+  { name: 'Dramatic Scepter', pieces: ['dramatic reversal', 'isochron scepter'], note: '需 ≥3 mana rocks 無限 mana' },
+  { name: 'Thoracle + Consult', pieces: ["thassa's oracle", 'demonic consultation'], note: '直接 win-con' },
+  { name: 'Thoracle + Tainted Pact', pieces: ["thassa's oracle", 'tainted pact'], note: '直接 win-con' },
+  { name: 'Lab Man + Consult', pieces: ['laboratory maniac', 'demonic consultation'], note: '抽光牌庫直接贏' },
+  { name: 'Jace Wielder + Consult', pieces: ['jace, wielder of mysteries', 'demonic consultation'], note: '抽光牌庫直接贏' },
+  { name: 'Kiki + Twin', pieces: ['kiki-jiki, mirror breaker', 'splinter twin'], note: '無限 haste tokens' },
+  { name: 'Kiki + Zealous', pieces: ['kiki-jiki, mirror breaker', 'zealous conscripts'], note: '無限 tokens' },
+  { name: 'Kiki + Pestermite', pieces: ['kiki-jiki, mirror breaker', 'pestermite'], note: '無限 tokens' },
+  { name: 'Kiki + Exarch', pieces: ['kiki-jiki, mirror breaker', 'deceiver exarch'], note: '無限 tokens' },
+  { name: 'Kiki + Felidar Guardian', pieces: ['kiki-jiki, mirror breaker', 'felidar guardian'], note: '無限 tokens' },
+  { name: 'Worldgorger combo', pieces: ['worldgorger dragon', 'animate dead'], note: '無限 ETB + mana' },
+  { name: 'Worldgorger + Necromancy', pieces: ['worldgorger dragon', 'necromancy'], note: '無限 ETB + mana' },
+  { name: 'Painter + Grindstone', pieces: ["painter's servant", 'grindstone'], note: '磨光牌庫' },
+  { name: 'Food Chain + Eternal Scourge', pieces: ['food chain', 'eternal scourge'], note: '無限 creature mana' },
+  { name: 'Food Chain + Squee', pieces: ['food chain', 'squee, the immortal'], note: '無限 creature mana' },
+  { name: 'Niv + Curiosity', pieces: ['niv-mizzet, the firemind', 'curiosity'], note: '抽牌=傷害迴圈' },
+  { name: 'Niv + Ophidian Eye', pieces: ['niv-mizzet, the firemind', 'ophidian eye'], note: '抽牌=傷害迴圈' },
+  { name: 'Heliod + Ballista', pieces: ['heliod, sun-crowned', 'walking ballista'], note: '無限 damage' },
+  { name: 'Heliod + Spike Feeder', pieces: ['heliod, sun-crowned', 'spike feeder'], note: '無限 life' },
+  { name: 'Dockside + Reversal', pieces: ['dockside extortionist', 'dramatic reversal'], note: '若場上有 4+ 對手永久' },
+  // ==== 2-card infinite mana (classic) ====
+  { name: 'Palinchron + Deadeye', pieces: ['palinchron', 'deadeye navigator'], note: '無限 mana + ETB' },
+  { name: 'Peregrine Drake + Deadeye', pieces: ['peregrine drake', 'deadeye navigator'], note: '無限 mana + ETB' },
+  { name: 'Basalt + Rings of Brighthearth', pieces: ['basalt monolith', 'rings of brighthearth'], note: '無限無色 mana' },
+  { name: 'Basalt + Power Artifact', pieces: ['basalt monolith', 'power artifact'], note: '無限無色 mana' },
+  { name: 'Bloom Tender + Umbral Mantle', pieces: ['bloom tender', 'umbral mantle'], note: '3+ 色場下無限色 mana' },
+  { name: 'Bloom Tender + Sword of the Paruns', pieces: ['bloom tender', 'sword of the paruns'], note: '3+ 色場下無限色 mana' },
+  { name: 'Grand Architect + Pili-Pala', pieces: ['grand architect', 'pili-pala'], note: '無限藍 / 色 mana' },
+  { name: 'Nyxbloom + Basalt', pieces: ['nyxbloom ancient', 'basalt monolith'], note: '無限綠 / 無色 mana' },
+  { name: 'Krark-Clan + Myr Retriever', pieces: ['krark-clan ironworks', 'myr retriever'], note: '接近無限 mana + mill' },
+  // ==== 2-card infinite damage / token ====
+  { name: 'Mikaeus + Walking Ballista', pieces: ['mikaeus, the unhallowed', 'walking ballista'], note: '無限 damage（undying loop）' },
+  { name: 'Mikaeus + Triskelion', pieces: ['mikaeus, the unhallowed', 'triskelion'], note: '無限 damage（undying loop）' },
+  { name: 'Exquisite + Sanguine', pieces: ['exquisite blood', 'sanguine bond'], note: '任意 lifegain / drain 觸發 → 直接 win' },
+  { name: 'Cloudstone + Shrieking Drake', pieces: ['cloudstone curio', 'shrieking drake'], note: '無限 ETB（需另一張 1cmc bird）' },
+  { name: 'Scute Swarm + landfall', pieces: ['scute swarm', 'lotus cobra'], note: '接近無限 token + mana（需地連進）' },
+  { name: 'Polyraptor + Forerunner', pieces: ['polyraptor', 'forerunner of the empire'], note: '無限 dinosaur tokens' },
+  // ==== 3-card combos ====
+  { name: 'Devoted Druid + Vizier + Ballista', pieces: ['devoted druid', 'vizier of remedies', 'walking ballista'], note: '無限綠 mana → 無限 damage' },
+  { name: 'Heliod + Feeder + Ballista', pieces: ['heliod, sun-crowned', 'spike feeder', 'walking ballista'], note: '無限 life → 無限 damage' },
+  { name: 'Reveillark + Karmic + Altar', pieces: ['reveillark', 'karmic guide', 'altar of dementia'], note: '磨光牌庫 win' },
+  { name: 'Saffi + Karmic + Reveillark', pieces: ['saffi eriksdotter', 'karmic guide', 'reveillark'], note: '無限 ETB / death triggers' },
+  { name: 'Ad Nauseam + Angel\'s Grace + storm', pieces: ['ad nauseam', "angel's grace", 'lightning storm'], note: '抽光手 + storm kill' },
+  { name: 'Doomsday + Thoracle + Consult', pieces: ['doomsday', "thassa's oracle", 'demonic consultation'], note: 'doomsday pile win' },
+  { name: 'Breach + LED + Brain Freeze', pieces: ['underworld breach', "lion's eye diamond", 'brain freeze'], note: 'storm mill 表敵 → 0' },
+  { name: 'Citadel + Aetherflux + Top', pieces: ["bolas's citadel", 'aetherflux reservoir', "sensei's divining top"], note: '無限 storm / life drain → win' },
+];
+
+const COMBO_PIECES = new Set([
+  // Infinite / near-infinite win cards and key pieces
+  "thassa's oracle", 'thassa’s oracle', 'demonic consultation', 'tainted pact',
+  'laboratory maniac', 'jace, wielder of mysteries',
+  'food chain', 'ad nauseam', 'doomsday', 'underworld breach',
+  'dramatic reversal', 'isochron scepter',
+  'grindstone', "painter's servant", 'painter’s servant',
+  'kiki-jiki, mirror breaker', 'splinter twin',
+  'worldgorger dragon', 'palinchron', 'high tide',
+  'deadeye navigator', 'peregrine drake',
+  'protean hulk', 'flash', 'hermit druid',
+  'cyclonic rift',  // common soft-win finisher (keep out of combo list maybe)
+]);
+COMBO_PIECES.delete('cyclonic rift'); // don't over-count as combo
+
+// ==== Staple whitelist for cards whose oracle text is hard to regex ====
+// Keyed by lowercase card name. Only list cards where heuristics commonly miss.
+const STAPLE_TAGS = {
+  // bounce / non-destroy wipes
+  'cyclonic rift': ['boardwipe'],
+  'devastation tide': ['boardwipe'],
+  "evacuation": ['boardwipe'],
+  "upheaval": ['boardwipe'],
+  // minus / damage wipes
+  'toxic deluge': ['boardwipe'],
+  "massacre wurm": ['boardwipe'],
+  // exchange / exile mass
+  'living death': ['boardwipe', 'recursion'],
+  'farewell': ['boardwipe'],
+  'merciless eviction': ['boardwipe'],
+  'austere command': ['boardwipe'],
+  'akroma\'s vengeance': ['boardwipe'],
+  'in garruk\'s wake': ['boardwipe'],
+  'crush contraband': ['boardwipe'],
+  "supreme verdict": ['boardwipe'],
+  'blasphemous act': ['boardwipe'],
+  'fire covenant': ['boardwipe'],
+  // treasure ramp
+  "smothering tithe": ['ramp'],
+  'revel in riches': ['ramp'],
+  "dockside extortionist": ['ramp'],
+  'jeweled lotus': ['mana_rock', 'ramp'],
+  // ETB ramp creatures that also draw
+  'solemn simulacrum': ['ramp', 'draw'],
+  "oracle of mul daya": ['ramp', 'draw'],
+  "azusa, lost but seeking": ['ramp'],
+  // recursion staples
+  'eternal witness': ['recursion'],
+  'sun titan': ['recursion'],
+  'regrowth': ['recursion'],
+  'reanimate': ['recursion'],
+  'animate dead': ['recursion'],
+  'necromancy': ['recursion'],
+  'entomb': ['tutor', 'recursion'],
+  'genesis': ['recursion'],
+  // creature / permanent tutors that don't use "search your library for a ... land" style
+  'birthing pod': ['tutor'],
+  'natural order': ['tutor'],
+  "green sun's zenith": ['tutor'],
+  'chord of calling': ['tutor'],
+  'eldritch evolution': ['tutor'],
+  // protection
+  'heroic intervention': ['protection'],
+  "teferi's protection": ['protection'],
+  'flawless maneuver': ['protection'],
+  'mother of runes': ['protection'],
+  'giver of runes': ['protection'],
+  'selfless spirit': ['protection'],
+  // board-advantage engines that don't say "draw a card" simply
+  "rhystic study": ['draw'],
+  "mystic remora": ['draw'],
+  "esper sentinel": ['draw'],
+  'sylvan library': ['draw'],
+};
+
+/** Returns Set of tags: ramp, draw, removal, counter, boardwipe, tutor, recursion,
+ *  mana_rock, mana_dork, fetch_land, basic_land, dual_land, utility_land, protection */
+function categorizeCard(c) {
+  const tags = new Set();
+  const name = (c.name || '').toLowerCase();
+  const text = _oracle(c);
+  const type = (c.type_line || '').toLowerCase();
+
+  // Staple override first (wins ties with regex)
+  const staple = STAPLE_TAGS[name] || STAPLE_TAGS[name.split(' //')[0]];
+  if (staple) staple.forEach(t => tags.add(t));
+
+  if (type.includes('land')) {
+    tags.add('land');
+    if (/^(plains|island|swamp|mountain|forest|wastes)$/.test(name)) {
+      tags.add('basic_land');
+    }
+    else if (/sacrifice/.test(text) && /search your library/.test(text)) {
+      tags.add('fetch_land');
+    }
+    else if (c.produced_mana && c.produced_mana.filter(x => 'WUBRG'.includes(x)).length >= 2) {
+      tags.add('dual_land');
+    }
+    else if (text.replace(/\s/g, '').length > 30) {
+      tags.add('utility_land');
+    }
+    else {
+      tags.add('non_basic_land');
+    }
+    return tags;
+  }
+
+  if (type.includes('artifact') && (/\{t\}: add/i.test(text) || /add one mana/i.test(text))) {
+    tags.add('mana_rock');
+  }
+  if (type.includes('creature') && /\{t\}: add/i.test(text)) {
+    tags.add('mana_dork');
+  }
+
+  // --- Ramp: searches for a land (any of: "land", "basic land", or named basic types) ---
+  const landSearchRe = /search your library for (a |an |up to (one|two|three|four|five) )?(basic )?(land|forest|plains|island|swamp|mountain|wastes)(?: card| cards)?/i;
+  if (!type.includes('land') && landSearchRe.test(text)) {
+    tags.add('ramp');
+  }
+
+  // --- Tutor: search library, but NOT a land search ---
+  if (/search your library for/i.test(text) && !landSearchRe.test(text) && !type.includes('land')) {
+    tags.add('tutor');
+  }
+
+  // --- Card draw ---
+  // Accept card-count numerals ("two", "three", …) plus digits / a / that many.
+  const numWords = '(?:a|one|two|three|four|five|six|seven|eight|nine|ten|\\d+|x|that many|cards? equal to)';
+  const drawRe = new RegExp(`(^|[.,;:]\\s*|[^a-z])draws?\\s+${numWords}(?:\\s+(?:additional\\s+)?cards?)?`, 'i');
+  const drawYouRe = new RegExp(`(you|target player|controller)(\\s+may)?\\s+draws?\\s+${numWords}`, 'i');
+  const onlyOpponentDraws = /opponent draws? /i.test(text)
+                         && !/(^|[^a-z])you (may )?draws? /i.test(text)
+                         && !/target player draws?/i.test(text);
+  if ((drawRe.test(text) || drawYouRe.test(text)) && !onlyOpponentDraws) {
+    tags.add('draw');
+  }
+
+  // --- Boardwipe (broad or targeted-multiple effects) ---
+  const wipeRes = [
+    /(destroy|exile) all (creatures|nonland|other|lands|permanents|artifacts|enchantments|planeswalkers|nontoken|tokens)/i,
+    /return all (creatures|nonland permanents|permanents|nontoken permanents)/i,
+    /all creatures? gets? -\d+\/-\d+/i,
+    /each creature gets -\d+\/-\d+/i,
+    /each player sacrifices/i,
+    /deals? \d+ damage to each (creature|player and each creature)/i,
+  ];
+  if (wipeRes.some(re => re.test(text))) {
+    tags.add('boardwipe');
+  }
+
+  // --- Single-target removal (not boardwipe) ---
+  if (!tags.has('boardwipe')
+      && /(destroy|exile) target (creature|permanent|artifact|enchantment|planeswalker|nonland|\w+ \w+)/i.test(text)) {
+    tags.add('removal');
+  }
+
+  // --- Counter ---
+  if (/counter target (spell|ability|activated ability|triggered ability)/i.test(text)) {
+    tags.add('counter');
+  }
+
+  // --- Recursion ---
+  if (/return target .*from (your |a )?graveyard/i.test(text)
+      || /return .* card from your graveyard/i.test(text)) {
+    tags.add('recursion');
+  }
+
+  // --- Protection ---
+  if (/(hexproof|indestructible|protection from|phasing|phases out)/i.test(text)
+      || /can('|no)t be (countered|targeted|destroyed|the target of)/i.test(text)) {
+    tags.add('protection');
+  }
+
+  return tags;
+}
+
+function mainType(c) {
+  const t = c.type_line || '';
+  if (/\bLand\b/.test(t)) return 'Land';
+  if (/\bCreature\b/.test(t)) return 'Creature';
+  if (/\bPlaneswalker\b/.test(t)) return 'Planeswalker';
+  if (/\bInstant\b/.test(t)) return 'Instant';
+  if (/\bSorcery\b/.test(t)) return 'Sorcery';
+  if (/\bArtifact\b/.test(t)) return 'Artifact';
+  if (/\bEnchantment\b/.test(t)) return 'Enchantment';
+  if (/\bBattle\b/.test(t)) return 'Battle';
+  return 'Other';
+}
+
+function pipsOf(manaCost) {
+  // returns { W:x, U:x, B:x, R:x, G:x, generic:x }
+  const out = { W:0, U:0, B:0, R:0, G:0, C:0, generic:0 };
+  if (!manaCost) return out;
+  const tokens = [...manaCost.matchAll(/\{([^}]+)\}/g)].map(m => m[1]);
+  for (const t of tokens) {
+    if (/^\d+$/.test(t)) out.generic += parseInt(t, 10);
+    else if (t === 'X') out.generic += 0;
+    else if (t === 'C') out.C += 1;
+    else if (/^[WUBRG]$/.test(t)) out[t] += 1;
+    else if (t.includes('/')) {
+      // hybrid: count 0.5 on each color pip present
+      for (const p of t.split('/')) {
+        if (/^[WUBRG]$/.test(p)) out[p] += 0.5;
+      }
+    }
+  }
+  return out;
+}
+
+function landColors(card) {
+  // returns Set of color codes this land can tap for
+  if (!isLand(card)) return new Set();
+  const colors = new Set();
+  // Start with produced_mana if present
+  if (Array.isArray(card.produced_mana)) {
+    for (const c of card.produced_mana) {
+      if ('WUBRG'.includes(c)) colors.add(c);
+    }
+    return colors;
+  }
+  // Fallback: basic land name
+  const basic = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' };
+  const nameKey = (card.name || '').split(' ').slice(-1)[0];
+  if (basic[nameKey]) colors.add(basic[nameKey]);
+  return colors;
+}
+
+function analyzeDeck(list, resolved, commanderList = [], gameChangers = new Set()) {
+  const cards = [];
+  const missing = [];
+  for (const { qty, name } of list) {
+    const c = resolved[name];
+    if (!c) { missing.push(name); continue; }
+    cards.push({ qty, card: c });
+  }
+  const commanderCards = [];
+  for (const { qty, name } of commanderList) {
+    const c = resolved[name];
+    if (!c) { missing.push(name); continue; }
+    commanderCards.push({ qty, card: c });
+  }
+
+  const total = cards.reduce((s, x) => s + x.qty, 0);
+  const nonLand = cards.filter(x => !isLand(x.card));
+  const land = cards.filter(x => isLand(x.card));
+  const nonLandCount = nonLand.reduce((s, x) => s + x.qty, 0);
+  const landCount = land.reduce((s, x) => s + x.qty, 0);
+
+  // mana curve (non-land)
+  const curve = {}; // cmc -> count
+  for (const { qty, card } of nonLand) {
+    let cmc = card.cmc ?? 0;
+    if (cmc >= 7) cmc = 7;
+    curve[cmc] = (curve[cmc] || 0) + qty;
+  }
+
+  // color pie (non-land, by color presence)
+  const colorBuckets = { W:0, U:0, B:0, R:0, G:0, C:0, M:0 };
+  for (const { qty, card } of nonLand) {
+    const cc = card.colors || [];
+    if (cc.length === 0) colorBuckets.C += qty;
+    else if (cc.length >= 2) colorBuckets.M += qty;
+    else colorBuckets[cc[0]] += qty;
+  }
+
+  // type distribution (all)
+  const types = {};
+  for (const { qty, card } of cards) {
+    const t = mainType(card);
+    types[t] = (types[t] || 0) + qty;
+  }
+
+  // pip demand (non-land) and land color sources
+  const demand = { W:0, U:0, B:0, R:0, G:0, C:0 };
+  for (const { qty, card } of nonLand) {
+    const pips = pipsOf(card.mana_cost);
+    for (const col of ['W', 'U', 'B', 'R', 'G', 'C']) {
+      demand[col] += pips[col] * qty;
+    }
+  }
+  const sources = { W:0, U:0, B:0, R:0, G:0, C:0 };
+  for (const { qty, card } of land) {
+    const lc = landColors(card);
+    for (const c of lc) sources[c] += qty;
+  }
+
+  // color identity — Commander mode uses commander's identity; otherwise union of deck.
+  const commanderCiSet = new Set();
+  for (const { card } of commanderCards) {
+    for (const c of (card.color_identity || [])) commanderCiSet.add(c);
+  }
+  const deckCiSet = new Set();
+  for (const { card } of cards) {
+    for (const c of (card.color_identity || [])) deckCiSet.add(c);
+  }
+  const isCommanderMode = commanderCards.length > 0;
+  const ciSet = isCommanderMode ? commanderCiSet : deckCiSet;
+  const ci = COLOR_CODES.filter(c => ciSet.has(c));
+
+  // Color identity violations (Commander rule): cards using a color outside CI
+  const violations = [];
+  if (isCommanderMode) {
+    for (const { qty, card } of cards) {
+      const offending = (card.color_identity || []).filter(c => !commanderCiSet.has(c));
+      if (offending.length) violations.push({ qty, card, offending });
+    }
+  }
+
+  // cards enriched for table
+  const tableRows = cards.map(({ qty, card }) => ({
+    qty,
+    name: card.name,
+    cmc: card.cmc ?? 0,
+    manaCost: card.mana_cost || '',
+    type: mainType(card),
+    rarity: card.rarity || '',
+    url: card.scryfall_uri || `https://scryfall.com/search?q=!"${encodeURIComponent(card.name)}"`,
+    edhrecUrl: edhrecCardUrl(card.name),
+    imgUrl: card.image_uris?.normal
+      || card.card_faces?.[0]?.image_uris?.normal
+      || '',
+    isLand: isLand(card),
+    colors: card.colors || [],
+  }));
+
+  const commanderRows = commanderCards.map(({ qty, card }) => ({
+    qty, name: card.name, card,
+    url: card.scryfall_uri,
+    edhrecUrl: edhrecCommanderUrl(card.name),
+    art: card.image_uris?.art_crop
+      || card.card_faces?.[0]?.image_uris?.art_crop
+      || null,
+  }));
+
+  // === DEEP STATS ===
+  // functional categorization
+  const funcCounts = {
+    ramp: 0, draw: 0, removal: 0, boardwipe: 0, counter: 0,
+    tutor: 0, recursion: 0, protection: 0,
+    mana_rock: 0, mana_dork: 0,
+    fetch_land: 0, dual_land: 0, basic_land: 0, non_basic_land: 0, utility_land: 0,
+  };
+  const funcCardLists = {}; // tag → [{qty, name, edhrecUrl}]
+  for (const { qty, card } of cards) {
+    const tags = categorizeCard(card);
+    for (const t of tags) {
+      if (funcCounts[t] !== undefined) funcCounts[t] += qty;
+      if (!funcCardLists[t]) funcCardLists[t] = [];
+      funcCardLists[t].push({ qty, name: card.name, edhrecUrl: edhrecCardUrl(card.name) });
+    }
+  }
+  // curve stats (non-land only)
+  const cmcList = [];
+  for (const { qty, card } of nonLand) {
+    for (let i = 0; i < qty; i++) cmcList.push(card.cmc ?? 0);
+  }
+  cmcList.sort((a, b) => a - b);
+  const avgCmc = cmcList.length ? cmcList.reduce((s, x) => s + x, 0) / cmcList.length : 0;
+  const medianCmc = cmcList.length ? cmcList[Math.floor(cmcList.length / 2)] : 0;
+  const cheapSpells = cmcList.filter(x => x <= 2).length;   // cmc 0–2
+  const midSpells = cmcList.filter(x => x >= 3 && x <= 4).length;
+  const expensiveSpells = cmcList.filter(x => x >= 5).length;
+
+  // mana base summary
+  const totalManaSources = funcCounts.fetch_land + funcCounts.dual_land
+                         + funcCounts.basic_land + funcCounts.non_basic_land
+                         + funcCounts.utility_land + funcCounts.mana_rock + funcCounts.mana_dork;
+  const rampPlusRocks = funcCounts.ramp + funcCounts.mana_rock + funcCounts.mana_dork;
+
+  // === CREATURE TRIBAL / SUBTYPE TALLY ===
+  const subtypeTally = new Map();
+  for (const { qty, card } of cards) {
+    const tl = card.type_line || '';
+    if (!/\bCreature\b/.test(tl)) continue;
+    const after = tl.split('—')[1];
+    if (!after) continue;
+    for (const t of after.replace(/\(.*?\)/g, '').trim().split(/\s+/)) {
+      if (!t) continue;
+      subtypeTally.set(t, (subtypeTally.get(t) || 0) + qty);
+    }
+  }
+  const topSubtypes = [...subtypeTally.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([type, count]) => ({ type, count }));
+  const totalCreatures = cards
+    .filter(x => /\bCreature\b/.test(x.card.type_line || ''))
+    .reduce((s, x) => s + x.qty, 0);
+
+  const deepStats = {
+    funcCounts, funcCardLists,
+    avgCmc, medianCmc,
+    cheapSpells, midSpells, expensiveSpells,
+    totalManaSources, rampPlusRocks,
+    topSubtypes, totalCreatures,
+  };
+
+  // === TOTAL PRICE (Scryfall USD) ===
+  let totalUsd = 0;
+  let pricedCount = 0;
+  const allCardPrices = [...cards, ...commanderCards];
+  for (const { qty, card } of allCardPrices) {
+    const p = parseFloat(card.prices?.usd || '0');
+    if (p > 0) { totalUsd += p * qty; pricedCount += qty; }
+  }
+
+  // === COMBO DETECTION ===
+  const nameLowerSet = new Set();
+  for (const { card } of allCardPrices) nameLowerSet.add(card.name.toLowerCase());
+  const detectedCombos = KNOWN_COMBOS.filter(cb => cb.pieces.every(p => nameLowerSet.has(p)));
+  // Partial combos — you have some pieces but not all. Filter by CI if Commander mode.
+  const partialCombos = [];
+  for (const cb of KNOWN_COMBOS) {
+    const have = cb.pieces.filter(p => nameLowerSet.has(p));
+    const missing = cb.pieces.filter(p => !nameLowerSet.has(p));
+    if (have.length > 0 && missing.length > 0) {
+      partialCombos.push({ ...cb, have, missing });
+    }
+  }
+  partialCombos.sort((a, b) => b.have.length - a.have.length);
+
+  // === COMMANDER STRATEGY / TRIBAL / FLAVOR DETECTION ===
+  const strategyAnalysis = {
+    keywords: [], tribal: [], deckTribal: [],
+    commanderSubtypes: [], commanderNames: [], commanderEdhrecUrl: null,
+  };
+  if (commanderCards.length) {
+    // Merge ALL commanders (partner / background / double-sided)
+    const cmdTextParts = [];
+    const allSubs = new Set();
+    const cmdNames = [];
+    const cmdSlugs = [];
+    for (const { card } of commanderCards) {
+      cmdTextParts.push(_oracle(card));
+      cmdNames.push(card.name);
+      cmdSlugs.push(edhrecSlug(card.name));
+      const line = card.type_line || '';
+      const subs = (line.split('—')[1] || '').replace(/\(.*?\)/g, '').trim().split(/\s+/).filter(Boolean);
+      subs.forEach(s => allSubs.add(s));
+    }
+    const cmdText = cmdTextParts.join(' ');
+    strategyAnalysis.commanderSubtypes = [...allSubs];
+    strategyAnalysis.commanderNames = cmdNames;
+
+    // EDHREC URL — partner pairs use dash-joined slugs (e.g.
+    // /commanders/brallin-skyshark-rider-shabraz-the-skyshark), sorted
+    // alphabetically. Slash form 302-redirects on the web UI but the JSON API
+    // returns 403, which is why EDHREC fetches silently failed for pairs.
+    const sortedSlugs = cmdSlugs.slice().sort();
+    const cmdSlug = sortedSlugs.join('-');
+    strategyAnalysis.commanderEdhrecUrl = `https://edhrec.com/commanders/${cmdSlug}`;
+
+    for (const kw of STRATEGY_KEYWORDS) {
+      if (kw.re.test(cmdText)) {
+        const missingSuggestions = kw.suggestions.filter(s => !nameLowerSet.has(s.toLowerCase()));
+        strategyAnalysis.keywords.push({
+          label: kw.label, hint: kw.hint,
+          theme: kw.theme,
+          edhrecThemeUrl: kw.theme ? `https://edhrec.com/commanders/${cmdSlug}/${kw.theme}` : null,
+          allSuggestions: kw.suggestions,
+          missingSuggestions,
+        });
+      }
+    }
+
+    // Tribal — commander subtype × deck hits
+    for (const sub of allSubs) {
+      if (!TRIBAL_TYPES.has(sub)) continue;
+      const hits = subtypeTally.get(sub) || 0;
+      if (hits > 0) {
+        strategyAnalysis.tribal.push({
+          subtype: sub, count: hits,
+          pct: totalCreatures ? hits / totalCreatures : 0,
+          fromCommander: true,
+        });
+      }
+    }
+    strategyAnalysis.tribal.sort((a, b) => b.count - a.count);
+  }
+
+  // Deck-level tribal: any TRIBAL_TYPES with ≥3 in deck, even if commander isn't that type
+  // (surfaces themes like Shark deck where art/tokens matter)
+  for (const [subtype, count] of subtypeTally.entries()) {
+    if (!TRIBAL_TYPES.has(subtype)) continue;
+    if (count < 3) continue;
+    // skip if already in commander-side tribal (avoid dup)
+    if (strategyAnalysis.tribal.some(t => t.subtype === subtype)) continue;
+    strategyAnalysis.deckTribal.push({
+      subtype, count,
+      pct: totalCreatures ? count / totalCreatures : 0,
+      fromCommander: false,
+    });
+  }
+  strategyAnalysis.deckTribal.sort((a, b) => b.count - a.count);
+
+  // === ARCHETYPE DETECTION ===
+  // Score-based classification. Multiple labels allowed.
+  const archetypeScores = {
+    'Combo': 0, 'Control': 0, 'Aggro': 0, 'Midrange': 0,
+    'Aristocrats': 0, 'Voltron': 0, 'Tokens': 0,
+    'Spellslinger': 0, 'Reanimator': 0, 'Tribal': 0, 'Toolbox': 0,
+  };
+  const _creatures = types['Creature'] || 0;
+  const _avgCmc = avgCmc;
+
+  archetypeScores.Combo += detectedCombos.length * 3.5;
+  archetypeScores.Combo += Math.min(partialCombos.length * 0.5, 2);
+  archetypeScores.Combo += Math.min(funcCounts.tutor * 0.5, 3.5);
+
+  archetypeScores.Control += funcCounts.counter * 0.8;
+  archetypeScores.Control += funcCounts.boardwipe * 1.2;
+  archetypeScores.Control += funcCounts.removal * 0.25;
+  if (_creatures < 10) archetypeScores.Control += 2;
+
+  if (_avgCmc <= 2.5) archetypeScores.Aggro += 3;
+  else if (_avgCmc <= 3.0) archetypeScores.Aggro += 1.5;
+  if (_creatures >= 25) archetypeScores.Aggro += 2;
+  if (funcCounts.counter === 0 && funcCounts.boardwipe <= 1 && _avgCmc <= 3) archetypeScores.Aggro += 1;
+
+  if (_avgCmc >= 2.8 && _avgCmc <= 3.8 && _creatures >= 15 && _creatures <= 25) archetypeScores.Midrange += 3;
+
+  archetypeScores.Reanimator += funcCounts.recursion * 1.2;
+  archetypeScores.Toolbox += Math.min(funcCounts.tutor * 0.5, 4);
+
+  // Token signal
+  if (nameLowerSet.has('anointed procession') || nameLowerSet.has('parallel lives') || nameLowerSet.has('doubling season')) {
+    archetypeScores.Tokens += 2;
+  }
+  // Aristocrats signal
+  if (nameLowerSet.has('blood artist') || nameLowerSet.has('zulaport cutthroat') || nameLowerSet.has('grave pact') || nameLowerSet.has('dictate of erebos')) {
+    archetypeScores.Aristocrats += 3;
+  }
+  // Tribal from either commander-side or deck-level detection
+  const _topTribal = [...strategyAnalysis.tribal, ...strategyAnalysis.deckTribal]
+    .sort((a, b) => b.count - a.count)[0];
+  if (_topTribal && _topTribal.count >= 7) archetypeScores.Tribal += _topTribal.count * 0.6;
+  else if (_topTribal && _topTribal.count >= 5) archetypeScores.Tribal += 3;
+  else if (_topTribal && _topTribal.count >= 3) archetypeScores.Tribal += 1.5;
+
+  const archetypes = Object.entries(archetypeScores)
+    .filter(([, s]) => s >= 2.5)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([name, score]) => ({ name, score }));
+  strategyAnalysis.archetypes = archetypes;
+
+  // ==== POWER LEVEL ESTIMATE ====
+  // Baseline 4 ("upgraded casual"); signals push up/down. Clamp to [1, 10].
+  const nameSet = new Map(); // lowercased name → qty
+  for (const { qty, card } of cards) nameSet.set(card.name.toLowerCase(), qty);
+  const countFromSet = (set) => {
+    let n = 0;
+    const hits = [];
+    for (const [nm, q] of nameSet) {
+      if (set.has(nm)) { n += q; hits.push(nm); }
+    }
+    return { n, hits };
+  };
+
+  let power = 4.0;
+  const powerSignals = [];
+  const addSignal = (msg, delta) => {
+    power += delta;
+    powerSignals.push({ msg, delta });
+  };
+
+  const fm = countFromSet(FAST_MANA);
+  if (fm.n >= 5) addSignal(`${fm.n} 張 fast mana`, +2.0);
+  else if (fm.n >= 3) addSignal(`${fm.n} 張 fast mana`, +1.5);
+  else if (fm.n >= 1) addSignal(`${fm.n} 張 fast mana`, +0.5);
+
+  const tutorN = funcCounts.tutor;
+  if (tutorN >= 8) addSignal(`${tutorN} 張 tutor`, +2.0);
+  else if (tutorN >= 5) addSignal(`${tutorN} 張 tutor`, +1.0);
+  else if (tutorN >= 3) addSignal(`${tutorN} 張 tutor`, +0.5);
+
+  const counterN = funcCounts.counter;
+  if (counterN >= 10) addSignal(`${counterN} 張 counter（cEDH 防禦）`, +1.5);
+  else if (counterN >= 5) addSignal(`${counterN} 張 counter`, +0.5);
+
+  const fi = countFromSet(FREE_INTERACTION);
+  if (fi.n >= 3) addSignal(`${fi.n} 張免費 interaction (FoW/FoN 等)`, +1.5);
+  else if (fi.n >= 1) addSignal(`${fi.n} 張免費 interaction`, +0.75);
+
+  const combo = countFromSet(COMBO_PIECES);
+  if (combo.n >= 3) addSignal(`${combo.n} 張 combo piece`, +1.5);
+  else if (combo.n >= 2) addSignal(`${combo.n} 張 combo piece`, +1.0);
+  else if (combo.n >= 1) addSignal(`${combo.n} 張 combo piece`, +0.5);
+
+  // Game Changer count — WOTC's official 40-ish card list (Commander Bracket
+  // System). Multiple GCs is the cleanest signal that a deck is pushing past
+  // B3 into optimised territory.
+  const gc = countFromSet(gameChangers);
+  const gcPreview = gc.hits.slice(0, 3).join(', ') + (gc.hits.length > 3 ? '…' : '');
+  if (gc.n >= 4) addSignal(`${gc.n} 張 Game Changer: ${gcPreview}`, +2.0);
+  else if (gc.n === 3) addSignal(`3 張 Game Changer: ${gcPreview}`, +1.5);
+  else if (gc.n === 2) addSignal(`2 張 Game Changer: ${gcPreview}`, +1.0);
+  else if (gc.n === 1) addSignal(`1 張 Game Changer: ${gc.hits[0]}`, +0.5);
+
+  if (avgCmc <= 2.0) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（極快）`, +1.0);
+  else if (avgCmc <= 2.5) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（快）`, +0.5);
+  else if (avgCmc >= 4.5) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（偏慢）`, -1.0);
+  else if (avgCmc >= 3.8) addSignal(`平均 CMC ${avgCmc.toFixed(2)}（略慢）`, -0.5);
+
+  const rocksAndDorks = funcCounts.mana_rock + funcCounts.mana_dork;
+  if (rocksAndDorks >= 10) addSignal(`${rocksAndDorks} 張加速生物/法器`, +0.5);
+
+  // Complete combos — differentiate 2-piece vs 3+ piece (3+ is stricter
+  // setup but often more explosive when it lands).
+  if (detectedCombos.length >= 1) {
+    const twoPc = detectedCombos.filter(c => c.pieces.length <= 2).length;
+    const multiPc = detectedCombos.filter(c => c.pieces.length >= 3).length;
+    if (twoPc) addSignal(`${twoPc} 個 2 卡 combo pair`, twoPc * 0.9);
+    if (multiPc) addSignal(`${multiPc} 個 3+ 卡 combo line`, multiPc * 1.1);
+  }
+
+  power = Math.max(1, Math.min(10, power));
+
+  // WOTC Commander Bracket mapping (2024 official). Hard rules take priority
+  // over raw score:
+  //   B5 cEDH       — tuned, loaded with GC + complete combos
+  //   B4 Optimized  — complete combos, or 4+ Game Changers, or score ≥ 7.5
+  //   B3 Upgraded   — some GC / high power staples, score ≥ 5.5
+  //   B2 Core       — casual, score ≥ 3.5
+  //   B1 Exhibition — precon / kitchen table
+  const completeComboN = detectedCombos.length;
+  const gcN = gc.n;
+  let bracket;
+  if (power >= 8.5 && completeComboN >= 1 && gcN >= 3) bracket = { n: 5, name: 'cEDH' };
+  else if (completeComboN >= 1 || gcN >= 4 || power >= 7.5)         bracket = { n: 4, name: 'Optimized' };
+  else if (gcN >= 1 || power >= 5.5)                                 bracket = { n: 3, name: 'Upgraded' };
+  else if (power >= 3.5)                                             bracket = { n: 2, name: 'Core' };
+  else                                                               bracket = { n: 1, name: 'Exhibition' };
+  const band = `B${bracket.n} · ${bracket.name}`;
+
+  const powerLevel = {
+    score: power,
+    band,
+    bracket,
+    signals: powerSignals,
+    details: { fastMana: fm.hits, freeInteraction: fi.hits, combo: combo.hits, gameChanger: gc.hits },
+    detectedCombos,
+    partialCombos,
+  };
+
+  return {
+    total, nonLandCount, landCount,
+    curve, colorBuckets, types, demand, sources, ci,
+    tableRows, missing, violations,
+    isCommanderMode,
+    commanderRows,
+    deepStats,
+    powerLevel,
+    strategyAnalysis,
+    totalUsd,
+    pricedCount,
+    _raw: { cards, commanderCards },
+  };
+}
+
+/* ================== MULLIGAN SIM ================== */
+function buildDeckBag(list, resolved) {
+  const bag = [];
+  for (const { qty, name } of list) {
+    const c = resolved[name];
+    if (!c) continue;
+    const tags = categorizeCard(c);
+    const rec = {
+      isLand: isLand(c),
+      cmc: c.cmc ?? 0,
+      colors: c.colors || [],
+      name: c.name,
+      isManaRock: isManaRock(c),
+      isRamp: tags.has('ramp'),
+      isFetch: tags.has('fetch_land'),
+    };
+    for (let i = 0; i < qty; i++) bag.push(rec);
+  }
+  return bag;
+}
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Cmc-aware keepable rule. Inspired by Frank Karsten:
+// - need 2..5 lands in the opening 7 (5+ lands but no early plays = flood)
+// - need at least one spell castable by turn (lands+1)
+//   i.e. min spell cmc ≤ lands + 1 (you can play it on the turn after your initial plays)
+// - cheap mana rocks (cmc ≤ 2) count as effective lands for this judgement
+function isHandKeepable(hand) {
+  const effLands = hand.filter(c => c.isLand || (c.isManaRock && c.cmc <= 2)).length;
+  if (effLands < 2 || effLands > 5) return false;
+  const spells = hand.filter(c => !c.isLand);
+  if (spells.length === 0) return false;
+  const minSpellCmc = Math.min(...spells.map(c => c.cmc));
+  // Allow 1-turn buffer: a 4-cmc spell with 3 lands in hand → cast on turn 4 fine
+  return minSpellCmc <= effLands + 1;
+}
+
+function simulateMulligan(bag, trials = 10000) {
+  let land2plus = 0;
+  let keepable = 0;
+  let mull6Stuck = 0;
+  let freeMullKeep = 0;
+  let avgEffLands = 0;
+  for (let i = 0; i < trials; i++) {
+    const hand = shuffle(bag).slice(0, 7);
+    const lands = hand.filter(c => c.isLand).length;
+    if (lands >= 2) land2plus++;
+    if (isHandKeepable(hand)) keepable++;
+    avgEffLands += hand.filter(c => c.isLand || (c.isManaRock && c.cmc <= 2)).length;
+
+    // London mull-to-6: draw 7, optimally put back the worst card so resulting 6-card hand keepable
+    const hand7 = shuffle(bag).slice(0, 7);
+    const sixHands = hand7.map((_, idx) => hand7.filter((__, j) => j !== idx));
+    const bestSix = sixHands.find(h => isHandKeepable6(h));
+    if (!bestSix) mull6Stuck++;
+
+    // Commander free mull: take best of two 7-hands
+    if (isHandKeepable(hand)) freeMullKeep++;
+    else {
+      const handB = shuffle(bag).slice(0, 7);
+      if (isHandKeepable(handB)) freeMullKeep++;
+    }
+  }
+  return {
+    land2plus: land2plus / trials,
+    keepable: keepable / trials,
+    mull6Stuck: mull6Stuck / trials,
+    freeMullKeep: freeMullKeep / trials,
+    avgEffLands: avgEffLands / trials,
+  };
+}
+// ==== Goldfish simulation (no opponents) ====
+// Simplifications:
+//   - Mulligan: free first mull (Commander); keep best of 2 keepable hands.
+//   - Lands untapped; play 1 land/turn; ramp spell adds 1 land THIS turn (crude approx).
+//   - Mana rocks activate NEXT turn (t+1 tap available).
+//   - Fetchlands: instantly resolve as a land in play (skip shuffle step).
+//   - No free spells, no alt-casts, no casting commander, no colored mana constraints.
+function goldfishSim(bag, commanderCmc, turns = 10, trials = 2000) {
+  // per-turn aggregates
+  const turnAgg = Array.from({ length: turns }, () => ({
+    lands: 0, manaAvail: 0, manaUsed: 0,
+    castCount: 0, castCmc: 0, cumCast: 0,
+  }));
+  let flood = 0, screw = 0;
+
+  for (let t = 0; t < trials; t++) {
+    const deck = shuffle(bag);
+    // Mulligan: free first, keep best of 2
+    let hand = deck.splice(0, 7);
+    if (!isHandKeepable(hand)) {
+      const deckB = shuffle(bag);
+      const handB = deckB.splice(0, 7);
+      if (isHandKeepable(handB)) {
+        hand = handB;
+        deck.length = 0;
+        deck.push(...deckB);
+      }
+    }
+    const startLands = hand.filter(c => c.isLand).length;
+    if (startLands === 0) screw++;
+    if (startLands >= 6) flood++;
+
+    let lands = 0;
+    let rocksActive = 0;      // available this turn
+    let rocksPending = 0;     // comes online next turn
+    let cumCast = 0;
+
+    for (let turn = 1; turn <= turns; turn++) {
+      if (turn > 1 && deck.length) hand.push(deck.pop()); // draw step
+      // activate pending rocks
+      rocksActive += rocksPending;
+      rocksPending = 0;
+
+      // Play land: prefer a fetchable non-land value over basic.
+      let landPlayed = false;
+      const landIdx = hand.findIndex(c => c.isLand);
+      if (landIdx >= 0) {
+        hand.splice(landIdx, 1);
+        lands++;
+        landPlayed = true;
+      }
+
+      // Mana this turn: lands tap + rocks already online
+      let mana = lands + rocksActive;
+
+      // Greedy cast: prioritize ramp at low cmc, then highest-cmc playable.
+      // Repeated passes to use Sol Ring freed mana right away.
+      const cast = [];
+      let changed = true;
+      while (changed && mana > 0) {
+        changed = false;
+        // 1) ramp first (cheap, gives more mana)
+        const rampIdx = hand.findIndex(c => !c.isLand && c.isRamp && c.cmc <= mana);
+        if (rampIdx >= 0) {
+          const r = hand.splice(rampIdx, 1)[0];
+          mana -= r.cmc;
+          cast.push(r);
+          lands++; // ramp resolves: +1 land to battlefield (approx)
+          changed = true;
+          continue;
+        }
+        // 2) mana rocks (add to pending, usable next turn)
+        const rockIdx = hand.findIndex(c => !c.isLand && c.isManaRock && c.cmc <= mana);
+        if (rockIdx >= 0) {
+          const r = hand.splice(rockIdx, 1)[0];
+          mana -= r.cmc;
+          cast.push(r);
+          // Sol Ring (cmc 1) traditionally taps same turn → give 2 immediately
+          if (r.name.toLowerCase() === 'sol ring') mana += 2;
+          else rocksPending++;
+          changed = true;
+          continue;
+        }
+        // 3) biggest castable non-land spell
+        let bestIdx = -1, bestCmc = -1;
+        for (let i = 0; i < hand.length; i++) {
+          const c = hand[i];
+          if (c.isLand || c.isRamp || c.isManaRock) continue;
+          if (c.cmc <= mana && c.cmc > bestCmc) {
+            bestIdx = i; bestCmc = c.cmc;
+          }
+        }
+        if (bestIdx >= 0) {
+          const s = hand.splice(bestIdx, 1)[0];
+          mana -= s.cmc;
+          cast.push(s);
+          changed = true;
+        }
+      }
+
+      const agg = turnAgg[turn - 1];
+      agg.lands += lands;
+      agg.manaAvail += lands + rocksActive;
+      const spent = cast.reduce((s, c) => s + c.cmc, 0);
+      agg.manaUsed += spent;
+      agg.castCount += cast.length;
+      agg.castCmc += spent;
+      cumCast += cast.length;
+      agg.cumCast += cumCast;
+    }
+  }
+
+  // average
+  const per = turnAgg.map(a => ({
+    lands: a.lands / trials,
+    manaAvail: a.manaAvail / trials,
+    manaUsed: a.manaUsed / trials,
+    castCount: a.castCount / trials,
+    castCmc: a.castCmc / trials,
+    cumCast: a.cumCast / trials,
+  }));
+
+  return {
+    perTurn: per,
+    screwRate: screw / trials,
+    floodRate: flood / trials,
+    trials,
+  };
+}
+
+// Same rule but on a 6-card hand
+function isHandKeepable6(hand) {
+  const effLands = hand.filter(c => c.isLand || (c.isManaRock && c.cmc <= 2)).length;
+  if (effLands < 2 || effLands > 4) return false;
+  const spells = hand.filter(c => !c.isLand);
+  if (spells.length === 0) return false;
+  const minSpellCmc = Math.min(...spells.map(c => c.cmc));
+  return minSpellCmc <= effLands + 1;
+}
+
+/* ================== RENDER ================== */
+let curveChart = null, colorChart = null, goldfishChart = null;
+
+function renderAll(analysis, deckName) {
+  $('result').classList.add('visible');
+  $('deckTitle').textContent = deckName || 'Deck';
+  const ciStr = analysis.ci.length ? analysis.ci.map(c => COLOR_NAMES[c]).join('/') : '無色';
+  const totalIncl = analysis.total + (analysis.commanderRows?.length || 0);
+  const meta = analysis.isCommanderMode
+    ? `${totalIncl} 張（${analysis.commanderRows.length} commander + ${analysis.nonLandCount} 非地 + ${analysis.landCount} 地）`
+    : `${analysis.total} 張（${analysis.nonLandCount} 非地 + ${analysis.landCount} 地）`;
+  const priceTxt = analysis.totalUsd > 0
+    ? ` · $${analysis.totalUsd.toFixed(2)} USD` + (analysis.pricedCount < totalIncl ? ` <span style="color:var(--text-dim);font-size:11px;">(${analysis.pricedCount}/${totalIncl} 有報價)</span>` : '')
+    : '';
+  $('deckMeta').innerHTML = meta + priceTxt;
+  $('colorIdentity').innerHTML = `<span class="color-pill">${ciStr}</span>`;
+  $('modeBadge').innerHTML = analysis.isCommanderMode
+    ? '<span class="mode-badge commander">Commander</span>'
+    : '<span class="mode-badge">60-card</span>';
+
+  // commander panel + EDHREC button
+  const cmds = analysis.commanderRows || [];
+  if (cmds.length) {
+    const dual = cmds.length > 1;
+    $('commanderPanel').innerHTML = cmds.map(r => {
+      const img = r.card.image_uris?.normal || r.card.card_faces?.[0]?.image_uris?.normal;
+      const attr = img ? `data-card-img="${img}"` : `data-card-name="${r.name}"`;
+      // flavor / set / year
+      const flavorText = r.card.flavor_text || r.card.card_faces?.[0]?.flavor_text || '';
+      const setName = r.card.set_name || '';
+      const year = (r.card.released_at || '').substring(0, 4);
+      const setBadge = setName ? `<span style="color:var(--gold);">${setName}</span>${year ? ` · ${year}` : ''}` : '';
+      const flavorHtml = flavorText
+        ? `<div style="font-size:11px;color:var(--text-dim);font-style:italic;margin-top:4px;line-height:1.4;max-width:480px;">“${flavorText.replace(/\n/g, ' — ')}”</div>`
+        : '';
+      const setHtml = setBadge
+        ? `<div style="font-size:10px;color:var(--text-dim);margin-top:2px;">${setBadge}</div>`
+        : '';
+      return `<div class="commander-block ${dual ? 'dual' : ''}">
+        ${r.art ? `<div class="cmd-art" style="background-image:url('${r.art}');" ${attr}></div>` : ''}
+        <div style="flex:1;">
+          <div class="cmd-name" ${attr}>${r.name}</div>
+          <div class="cmd-name small">${r.card.type_line || ''}</div>
+          ${setHtml}
+          ${flavorHtml}
+        </div>
+      </div>`;
+    }).join('');
+    // EDHREC link uses first commander (partner pairs would need /partners/ but skip v1)
+    const eb = $('edhrecBtn');
+    eb.href = cmds[0].edhrecUrl;
+    eb.style.display = '';
+    eb.textContent = `在 EDHREC 看「${cmds[0].name.split(',')[0]}」→`;
+  } else {
+    $('commanderPanel').innerHTML = '';
+    $('edhrecBtn').style.display = 'none';
+  }
+
+  // violations
+  if (analysis.violations.length) {
+    $('violationsPanel').style.display = '';
+    $('violationsList').innerHTML = analysis.violations.map(v => {
+      const img = v.card.image_uris?.normal || v.card.card_faces?.[0]?.image_uris?.normal;
+      const attr = img ? `data-card-img="${img}"` : `data-card-name="${v.card.name}"`;
+      return `<div class="violation-item">
+        <span><strong>${v.qty}×</strong> <a href="${v.card.scryfall_uri}" target="_blank" ${attr}>${v.card.name}</a></span>
+        <span class="violation-pips">違規色：${v.offending.map(c => COLOR_NAMES[c]).join('/')}</span>
+      </div>`;
+    }).join('');
+  } else {
+    $('violationsPanel').style.display = 'none';
+  }
+
+  renderCurveChart(analysis.curve);
+  renderColorChart(analysis.colorBuckets);
+  renderTypes(analysis.types, analysis.total);
+  renderManabase(analysis.demand, analysis.sources);
+  renderDeepStats(analysis);
+  renderPowerLevel(analysis.powerLevel);
+  renderStrategyPanel(analysis);
+  renderTable(analysis.tableRows);
+
+  if (analysis.missing.length) {
+    setStatus(`⚠️ Scryfall 找不到 ${analysis.missing.length} 張：${analysis.missing.slice(0, 5).join(', ')}${analysis.missing.length > 5 ? '…' : ''}`, 'err');
+  }
+}
+
+function renderCurveChart(curve) {
+  const labels = ['0', '1', '2', '3', '4', '5', '6', '7+'];
+  const data = labels.map((_, i) => curve[i] || 0);
+  const ctx = $('curveChart').getContext('2d');
+  if (curveChart) curveChart.destroy();
+  curveChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--gold').trim(),
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8a8aa0' }, grid: { color: '#2a2a38' } },
+        y: { ticks: { color: '#8a8aa0', stepSize: 1 }, grid: { color: '#2a2a38' } },
+      }
+    }
+  });
+}
+
+function renderColorChart(buckets) {
+  const order = ['W', 'U', 'B', 'R', 'G', 'M', 'C'];
+  const labels = order.map(k => ({ W:'白', U:'藍', B:'黑', R:'紅', G:'綠', M:'多色', C:'無色' })[k]);
+  const data = order.map(k => buckets[k] || 0);
+  const bg = order.map(k => COLOR_HEX[k === 'M' ? 'M' : k]);
+  const ctx = $('colorChart').getContext('2d');
+  if (colorChart) colorChart.destroy();
+  colorChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data, backgroundColor: bg, borderColor: '#16161f', borderWidth: 2 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { color: '#e8e8f0', font: { size: 11 }, boxWidth: 12 } }
+      },
+    }
+  });
+}
+
+function renderTypes(types, total) {
+  const order = ['Creature', 'Instant', 'Sorcery', 'Enchantment', 'Artifact', 'Planeswalker', 'Battle', 'Land', 'Other'];
+  const rows = order.filter(t => types[t]).map(t => {
+    const n = types[t];
+    const pct = total ? Math.round(100 * n / total) : 0;
+    return `<div class="stat"><span class="stat-label">${t}</span><span class="stat-value">${n} <span style="color:var(--text-dim);font-size:11px;">(${pct}%)</span></span></div>`;
+  }).join('');
+  $('typeStats').innerHTML = rows || '<div class="stat-label">無資料</div>';
+}
+
+function renderEdhrecRecs(recs, commanderName, themes, slugOverride) {
+  const panel = $('edhrecPanel');
+  const hasAny = recs && (recs.topMissing.length + recs.synergyMissing.length
+                        + recs.topHits.length + recs.synergyHits.length > 0)
+              || (themes && themes.length);
+  if (!hasAny) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  // Coverage score
+  const topHitCount = recs.topHits.length;
+  const topTotal = recs.topStapleSize;
+  const coveragePct = topTotal ? Math.round(100 * topHitCount / topTotal) : 0;
+  const coverageColor = coveragePct >= 50 ? 'var(--ok)' : coveragePct >= 30 ? 'var(--gold)' : 'var(--text-dim)';
+
+  const renderList = (items, heading, kind) => {
+    if (items.length === 0) return `<div><h4 style="margin:0 0 8px;font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;">${heading}</h4><div style="color:var(--text-dim);font-size:12px;">無</div></div>`;
+    const rows = items.map(r => {
+      const pct = (r.inclusion * 100).toFixed(0);
+      const metric = kind === 'top'
+        ? `<span class="stat-value" style="min-width:42px;text-align:right;">${pct}%</span>`
+        : `<span class="stat-value" style="min-width:42px;text-align:right;color:var(--gold);">+${(r.synergy * 100).toFixed(0)}%</span>`;
+      return `<div class="stat" style="padding:4px 0;">
+        <a href="https://edhrec.com/cards/${r.slug}" target="_blank" rel="noopener" data-card-name="${r.name}" style="color:var(--text);text-decoration:none;border-bottom:1px dotted var(--border);flex:1;">${r.name}</a>
+        ${metric}
+      </div>`;
+    }).join('');
+    return `<div>
+      <h4 style="margin:0 0 8px;font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;">${heading}</h4>
+      ${rows}
+    </div>`;
+  };
+
+  const hitsPreview = recs && recs.topHits.length
+    ? `<div style="margin-top:6px;font-size:11px;color:var(--text-dim);">命中：${recs.topHits.map(h => h.name).slice(0, 8).join('、')}${recs.topHits.length > 8 ? '…' : ''}</div>`
+    : '';
+
+  const themesHtml = (themes && themes.length)
+    ? `<div style="grid-column:1/-1;padding:10px 14px;background:var(--bg-3);border-radius:6px;margin-bottom:4px;">
+        <div style="font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🌿 Alternative Themes（EDHREC 該指揮官的主流子主題）</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${themes.map(t => `<a href="${t.href}" target="_blank" rel="noopener" style="padding:4px 10px;background:var(--bg-2);border:1px solid var(--border);border-radius:12px;font-size:12px;color:var(--text);text-decoration:none;">${t.name}${t.count ? ` <span style="color:var(--text-dim);">(${t.count})</span>` : ''}</a>`).join('')}
+        </div>
+      </div>`
+    : '';
+
+  const coverageHtml = recs && (recs.topMissing.length || recs.topHits.length)
+    ? `<div style="grid-column:1/-1;padding:10px 14px;background:var(--bg-3);border-radius:6px;margin-bottom:4px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;">
+          <span style="font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;">Staple 命中率（越高表示越主流）</span>
+          <span style="font-size:22px;font-weight:700;color:${coverageColor};font-variant-numeric:tabular-nums;">${topHitCount}/${topTotal} <span style="font-size:13px;">(${coveragePct}%)</span></span>
+        </div>
+        ${hitsPreview}
+      </div>`
+    : '';
+
+  $('edhrecGrid').innerHTML = `
+    ${themesHtml}
+    ${coverageHtml}
+    ${recs ? renderList(recs.topMissing, `Top Staples（你沒放的）`, 'top') : ''}
+    ${recs ? renderList(recs.synergyMissing, `High Synergy（你沒放的）`, 'synergy') : ''}
+  `;
+  const edhrecHref = slugOverride
+    ? `https://edhrec.com/commanders/${slugOverride}`
+    : `https://edhrec.com/commanders/${edhrecSlug(commanderName)}`;
+  $('edhrecHint').innerHTML =
+    `% = 此 commander 的牌組中，該卡的登入率。資料來自 <a href="${edhrecHref}" target="_blank" style="color:var(--text-dim);">EDHREC «${commanderName}»</a>`;
+}
+
+function renderGoldfish(result) {
+  const labels = result.perTurn.map((_, i) => `T${i + 1}`);
+  const lands = result.perTurn.map(p => +p.lands.toFixed(2));
+  const casts = result.perTurn.map(p => +p.castCount.toFixed(2));
+  const manaUsed = result.perTurn.map(p => +p.manaUsed.toFixed(2));
+
+  const ctx = $('goldfishChart').getContext('2d');
+  if (goldfishChart) goldfishChart.destroy();
+  goldfishChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: '平均地數', data: lands,
+          borderColor: '#d4af37', backgroundColor: 'rgba(212,175,55,0.15)',
+          yAxisID: 'y', tension: 0.3, fill: true, pointRadius: 3 },
+        { label: '平均出牌數 / 回合', data: casts,
+          borderColor: '#4fd1a7', backgroundColor: 'rgba(79,209,167,0.1)',
+          yAxisID: 'y1', tension: 0.3, pointRadius: 3 },
+        { label: '平均 mana 消耗', data: manaUsed,
+          borderColor: '#4a8fcf', backgroundColor: 'rgba(74,143,207,0.1)',
+          yAxisID: 'y', tension: 0.3, pointRadius: 3, borderDash: [4, 3] },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#e8e8f0', font: { size: 11 } } } },
+      scales: {
+        x: { ticks: { color: '#8a8aa0' }, grid: { color: '#2a2a38' } },
+        y: {
+          position: 'left', ticks: { color: '#8a8aa0' }, grid: { color: '#2a2a38' },
+          title: { display: true, text: '地數 / mana', color: '#8a8aa0', font: { size: 10 } },
+        },
+        y1: {
+          position: 'right', ticks: { color: '#8a8aa0' }, grid: { drawOnChartArea: false },
+          title: { display: true, text: '出牌數', color: '#8a8aa0', font: { size: 10 } },
+        },
+      },
+    },
+  });
+
+  const t3 = result.perTurn[2], t5 = result.perTurn[4], t7 = result.perTurn[6], t10 = result.perTurn[9];
+  const summary = `
+    <div class="stat"><span class="stat-label">T3 累計出牌</span><span class="stat-value">${t3.cumCast.toFixed(2)}</span></div>
+    <div class="stat"><span class="stat-label">T5 累計出牌</span><span class="stat-value">${t5.cumCast.toFixed(2)}</span></div>
+    <div class="stat"><span class="stat-label">T7 累計出牌</span><span class="stat-value">${t7.cumCast.toFixed(2)}</span></div>
+    <div class="stat"><span class="stat-label">T10 累計出牌</span><span class="stat-value">${t10.cumCast.toFixed(2)}</span></div>
+    <hr style="border:0;border-top:1px solid var(--border);margin:6px 0;">
+    <div class="stat"><span class="stat-label">T5 平均地數</span><span class="stat-value">${t5.lands.toFixed(2)}</span></div>
+    <div class="stat"><span class="stat-label">T5 平均 mana 消耗</span><span class="stat-value">${t5.manaUsed.toFixed(2)} <span style="color:var(--text-dim);font-size:11px;">/ ${t5.manaAvail.toFixed(2)} 可用</span></span></div>
+    <div class="stat"><span class="stat-label">起手無地（screw）</span><span class="stat-value">${(result.screwRate * 100).toFixed(1)}%</span></div>
+    <div class="stat"><span class="stat-label">起手 6+ 地（flood）</span><span class="stat-value">${(result.floodRate * 100).toFixed(1)}%</span></div>
+    <div style="margin-top:8px;font-size:11px;color:var(--text-dim);">模擬 ${result.trials} 場</div>
+  `;
+  $('goldfishSummary').innerHTML = summary;
+}
+
+function renderPowerLevel(pl) {
+  $('powerScore').textContent = pl.score.toFixed(1);
+  $('powerBand').textContent = pl.band;
+  const signalsHtml = pl.signals.length
+    ? pl.signals.map(s => `<div class="power-signal">
+        <span>${s.msg}</span>
+        <span class="delta ${s.delta >= 0 ? 'up' : 'down'}">${s.delta >= 0 ? '+' : ''}${s.delta.toFixed(1)}</span>
+      </div>`).join('')
+    : '<div class="power-signal" style="color:var(--text-dim);">（無強訊號，維持基線 4.0）</div>';
+  $('powerSignals').innerHTML = signalsHtml;
+}
+
+// Shared renderer for a card-link list with inclusion badge + "show all" toggle.
+// `cards` entries may carry: { name, slug?, imgUrl?, inclusion? (0–1) }.
+function renderSuggestionCards(cards, opts = {}) {
+  const defaultShow = opts.defaultShow ?? 12;
+  if (!cards || !cards.length) {
+    return '<span style="color:var(--text-dim);font-size:11px;">（無建議 / 已放滿）</span>';
+  }
+  const total = cards.length;
+  const items = cards.map((c, i) => {
+    const hidden = i >= defaultShow ? ' mv-hidden' : '';
+    const pct = (c.inclusion != null) ? Math.round(c.inclusion * 100) : null;
+    const badge = pct != null
+      ? ` <span style="color:var(--gold);font-size:10px;font-weight:700;margin-left:2px;">${pct}%</span>`
+      : '';
+    const title = pct != null ? ` title="此 commander ${pct}% deck 有放"` : '';
+    const href = opts.withEdhrecLink
+      ? `https://edhrec.com/cards/${c.slug || edhrecSlug(c.name)}`
+      : `https://scryfall.com/search?q=%21%22${encodeURIComponent(c.name)}%22`;
+    const imgAttr = c.imgUrl ? ` data-card-img="${c.imgUrl}"` : '';
+    return `<a href="${href}" target="_blank" rel="noopener" data-card-name="${c.name}"${imgAttr}${title} class="mv-sugg${hidden}" style="color:var(--text);border-bottom:1px dotted var(--gold-dim);text-decoration:none;margin-right:10px;font-size:12px;">${c.name}${badge}</a>`;
+  }).join('');
+  const btn = total > defaultShow
+    ? `<button type="button" class="mv-more" data-more="顯示全部 ${total} 張" data-less="收起">顯示全部 ${total} 張</button>`
+    : '';
+  return `<div class="mv-sugg-list" style="line-height:2;">${items}</div>${btn}`;
+}
+
+function renderStrategyPanel(analysis) {
+  const pl = analysis.powerLevel;
+  const sa = analysis.strategyAnalysis || { keywords: [], tribal: [], commanderSubtypes: [] };
+  const panel = $('strategyPanel');
+  const content = $('strategyContent');
+  const hasCombos = (pl?.detectedCombos?.length || 0) + (pl?.partialCombos?.length || 0) > 0;
+  const hasStrategy = sa.keywords.length + sa.tribal.length + (sa.edhrecThemesRanked?.length || 0) > 0;
+  if (!hasCombos && !hasStrategy) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  const sections = [];
+
+  // Complete combos
+  if (pl.detectedCombos?.length) {
+    const rows = pl.detectedCombos.map(c => {
+      const pieces = c.pieces.map(p =>
+        `<span data-card-name="${p}" style="border-bottom:1px dotted var(--border);">${p}</span>`
+      ).join(' + ');
+      return `<div style="padding:4px 0;font-size:13px;">
+        <strong style="color:var(--gold);">⚡ ${c.name}</strong>
+        <span style="color:var(--text-dim);"> — ${pieces}（${c.note}）</span>
+      </div>`;
+    }).join('');
+    sections.push(`<div>
+      <div style="font-size:11px;color:var(--ok);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">✓ 完整 Combo Pair（${pl.detectedCombos.length}）</div>
+      ${rows}
+    </div>`);
+  }
+
+  // Partial combos
+  if (pl.partialCombos?.length) {
+    const top = pl.partialCombos.slice(0, 6);
+    const rows = top.map(c => {
+      const miss = c.missing.map(p =>
+        `<span class="miss" data-card-name="${p}" style="border-bottom:1px dotted var(--gold-dim);">${p}</span>`
+      ).join(' + ');
+      const have = c.have.map(p =>
+        `<span class="have" data-card-name="${p}" style="border-bottom:1px dotted var(--border);">${p}</span>`
+      ).join(', ');
+      return `<div class="partial-combo">
+        <span><strong>${c.name}</strong> <span style="color:var(--text-dim);font-size:12px;">你有 ${have} · <span class="miss">缺 ${miss}</span></span></span>
+      </div>`;
+    }).join('');
+    sections.push(`<div style="margin-top:14px;">
+      <div style="font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">⏳ 部分 Combo 線索（差 1 張就完整）</div>
+      ${rows}
+    </div>`);
+  }
+
+  // EDHREC themes — primary strategy identification. For each top theme we
+  // already fetched the JSON and scored how many of its top cards the deck
+  // plays; show the best-matching themes + the cards this deck is missing.
+  const themesRanked = sa.edhrecThemesRanked || [];
+  const primary = themesRanked[0];
+  const hasStrongTheme = primary && primary.overlap.count >= 3;
+
+  if (themesRanked.length) {
+    const shown = themesRanked.slice(0, 3);
+    const rows = shown.map(t => {
+      const denom = Math.max(t.topCards.length, 1);
+      const pct = Math.round(100 * t.overlap.count / denom);
+      const missingCards = t.missing.map(c => ({
+        name: c.name, slug: c.slug, inclusion: c.inclusion,
+      }));
+      const suggBlock = renderSuggestionCards(missingCards, { withEdhrecLink: true, defaultShow: 12 });
+      const hitBadge = t.overlap.count >= 5
+        ? '🎯 強命中'
+        : t.overlap.count >= 3 ? '◉ 中等命中' : '◌ 弱命中';
+      return `<div style="margin-bottom:12px;padding:10px 12px;background:var(--bg-3);border-radius:6px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;gap:10px;">
+          <span style="font-size:13px;font-weight:700;color:var(--gold);">
+            ${t.name}
+            <span style="color:var(--text);font-size:12px;font-weight:400;margin-left:6px;">${hitBadge} · ${t.overlap.count}/${t.topCards.length} (${pct}%)</span>
+          </span>
+          <a href="${t.href}" target="_blank" rel="noopener" style="font-size:11px;color:var(--gold);text-decoration:none;white-space:nowrap;">在 EDHREC 看 →</a>
+        </div>
+        <details open style="font-size:11px;margin-top:4px;">
+          <summary style="cursor:pointer;color:var(--gold);">💡 這主題大家會放但你沒放的（按 inclusion 排）</summary>
+          <div style="padding:6px 0;">${suggBlock}</div>
+        </details>
+      </div>`;
+    }).join('');
+    const headerNote = hasStrongTheme
+      ? '依 EDHREC 該指揮官的主題頁比對牌組命中的 top cards 排序'
+      : '（命中數偏低 — 可能 deck 不走固定主題，僅供參考）';
+    sections.push(`<div style="margin-top:14px;">
+      <div style="font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🎯 EDHREC 主題命中（牌組實際走向）</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;">${headerNote}</div>
+      ${rows}
+    </div>`);
+  }
+
+  // Commander keyword strategies — fallback only when EDHREC themes gave no
+  // strong match. When EDHREC already nailed the archetype, oracle-text regex
+  // matching is noisier than helpful.
+  if (sa.keywords.length && !hasStrongTheme) {
+    const rows = sa.keywords.map(k => {
+      const missingHtml = k.missingSuggestions.slice(0, 8).map(name =>
+        `<a href="https://edhrec.com/cards/${edhrecSlug(name)}" target="_blank" rel="noopener" data-card-name="${name}" style="color:var(--text);border-bottom:1px dotted var(--border);text-decoration:none;margin-right:4px;display:inline-block;padding:2px 0;">${name}</a>`
+      ).join('');
+      const hits = k.allSuggestions.length - k.missingSuggestions.length;
+      const themeLink = k.edhrecThemeUrl
+        ? `<a href="${k.edhrecThemeUrl}" target="_blank" rel="noopener" style="font-size:11px;color:var(--gold);text-decoration:none;margin-left:10px;">在 EDHREC 看此主題 →</a>`
+        : '';
+      return `<div style="margin-bottom:12px;padding:8px 10px;background:var(--bg-3);border-radius:6px;">
+        <div style="font-size:13px;font-weight:700;color:var(--gold);">🎭 ${k.label}
+          <span style="font-size:11px;color:var(--text-dim);font-weight:400;margin-left:8px;">命中 ${hits}/${k.allSuggestions.length}</span>
+          ${themeLink}
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin:2px 0 6px;">${k.hint}</div>
+        <div style="font-size:12px;">
+          ${k.missingSuggestions.length ? `<span style="color:var(--text-dim);font-size:11px;">建議補：</span> ${missingHtml}` : '<span style="color:var(--ok);">✓ 常用主題卡都已收錄</span>'}
+        </div>
+      </div>`;
+    }).join('');
+    sections.push(`<div style="margin-top:14px;">
+      <div style="font-size:11px;color:var(--text);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🎭 Oracle 關鍵字策略（fallback — EDHREC 主題沒強命中時參考）</div>
+      ${rows}
+    </div>`);
+  }
+
+  // === Unified Flavor Analysis (multi-dim: name / subtype / token / art / flavor_text) ===
+  const flavorThemes = sa.flavorThemes;
+  if (flavorThemes && flavorThemes.length) {
+    const rows = flavorThemes.map(fr => {
+      const dim = fr.dimCounts;
+      const dimChips = [
+        dim.name ? `📝name ${dim.name}` : null,
+        dim.subtype ? `🧬type ${dim.subtype}` : null,
+        dim.token ? `🎟️token ${dim.token}` : null,
+        dim.art ? `🎨art ${dim.art}` : null,
+        dim.flavor ? `💬flavor ${dim.flavor}` : null,
+      ].filter(Boolean).map(t =>
+        `<span style="display:inline-block;padding:1px 6px;margin-right:3px;background:var(--bg-2);border-radius:8px;font-size:10px;color:var(--text-dim);">${t}</span>`
+      ).join('');
+      const cmdBadge = fr.commanderHit
+        ? `<span style="color:var(--gold);font-size:11px;margin-left:8px;">👑 Commander 呼應</span>`
+        : '';
+      // Cards contributing
+      const topHits = fr.cardHits.slice(0, 8).map(h => {
+        const dimsStr = h.hits.join('/');
+        return `<span data-card-name="${h.name}" style="color:var(--text);border-bottom:1px dotted var(--border);font-size:11px;margin-right:6px;">${h.name}<span style="color:var(--text-dim);font-size:10px;"> [${dimsStr}]</span></span>`;
+      }).join('');
+      const suggCards = (fr.suggestions || []).map(c => ({
+        name: c.name,
+        imgUrl: c.imgUrl,
+        inclusion: c.inclusion ?? null,
+      }));
+      const suggestionsHtml = renderSuggestionCards(suggCards, { defaultShow: 12 });
+
+      return `<div style="margin-bottom:12px;padding:10px 12px;background:var(--bg-3);border-radius:6px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+          <span style="font-size:14px;font-weight:700;color:var(--gold);">${fr.theme.label}
+            <span style="color:var(--text);font-size:12px;font-weight:400;margin-left:6px;">Score ${fr.totalScore.toFixed(1)}</span>
+            ${cmdBadge}
+          </span>
+          <span style="font-size:11px;color:var(--text-dim);">${fr.cardHits.length} 張符合</span>
+        </div>
+        <div style="margin:4px 0 6px;">${dimChips}</div>
+        <details style="font-size:11px;">
+          <summary style="cursor:pointer;color:var(--text-dim);">▸ 命中卡（top ${Math.min(fr.cardHits.length, 8)}）</summary>
+          <div style="padding:6px 0;line-height:1.8;">${topHits}</div>
+        </details>
+        <details open style="font-size:11px;margin-top:4px;">
+          <summary style="cursor:pointer;color:var(--gold);">💡 建議補充 ${fr.theme.label.replace(/^\S+\s*/u, '')} 風味卡</summary>
+          <div style="padding:6px 0;line-height:1.8;">${suggestionsHtml}</div>
+        </details>
+      </div>`;
+    }).join('');
+    sections.push(`<div style="margin-top:14px;">
+      <div style="font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🎨 綜合 Flavor 分析（多維訊號：卡名 / 種族 / token / 藝術 / flavor text）</div>
+      ${rows}
+    </div>`);
+  }
+
+  // Art Tag flavor detection — Scryfall community art tags
+  const artTags = sa.artTags;
+  if (artTags && artTags.length) {
+    const rows = artTags.map(h => {
+      const matchedPreview = h.matched.slice(0, 4).join('、') + (h.matched.length > 4 ? ` 等 ${h.matched.length} 張` : '');
+      return `<div class="stat" style="padding:4px 0;">
+        <span class="stat-label">${h.label}</span>
+        <span class="stat-value">${h.count} 張 <span style="color:var(--text-dim);font-size:11px;">· ${matchedPreview}</span></span>
+      </div>`;
+    }).join('');
+    sections.push(`<div style="margin-top:14px;">
+      <div style="font-size:11px;color:var(--text);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">🎨 卡圖風味主題（Scryfall 社群 art tag ≥ 2 張才列出）</div>
+      ${rows}
+    </div>`);
+  } else if (sa.artTagsLoading) {
+    sections.push(`<div style="margin-top:14px;font-size:11px;color:var(--text-dim);">
+      🎨 卡圖風味：載入中…
+    </div>`);
+  }
+
+  content.innerHTML = sections.join('<hr style="border:0;border-top:1px solid var(--border);margin:14px 0;">');
+}
+
+function renderDeepStats(analysis) {
+  const ds = analysis.deepStats;
+  const isCmd = analysis.isCommanderMode;
+  const expectedLands = isCmd ? '36-38' : '24-26';
+  const expectedRamp = isCmd ? '8-12' : '0-4';
+  const expectedDraw = isCmd ? '8-12' : '4-8';
+
+  // Curve health
+  const totalSpells = ds.cheapSpells + ds.midSpells + ds.expensiveSpells;
+  const cheapPct = totalSpells ? (100 * ds.cheapSpells / totalSpells).toFixed(0) : 0;
+  const midPct   = totalSpells ? (100 * ds.midSpells / totalSpells).toFixed(0) : 0;
+  const expPct   = totalSpells ? (100 * ds.expensiveSpells / totalSpells).toFixed(0) : 0;
+
+  const curveAdvice = (() => {
+    if (ds.avgCmc >= 4 && analysis.landCount < 38 && isCmd)
+      return `<span style="color:var(--danger);">⚠ 平均費 ${ds.avgCmc.toFixed(2)} 偏高，建議 ${analysis.landCount}→38+ 地或加 ramp</span>`;
+    if (ds.cheapSpells < (isCmd ? 12 : 8))
+      return `<span style="color:var(--gold);">⚠ 便宜咒語（cmc≤2）只有 ${ds.cheapSpells} 張，容易 keep 不下手</span>`;
+    return `<span style="color:var(--ok);">✓ 曲線健康</span>`;
+  })();
+
+  // Creature subtype (tribal) summary — surfaces dominant types
+  let tribalHtml = '';
+  if (ds.topSubtypes && ds.topSubtypes.length && ds.totalCreatures) {
+    const top = ds.topSubtypes.slice(0, 5).filter(s => s.count >= 2);
+    if (top.length) {
+      tribalHtml = `<hr style="border:0;border-top:1px solid var(--border);margin:6px 0;">
+        <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Top 創造物部族（${ds.totalCreatures} 生物）</div>
+        ${top.map(s => `<div class="stat" style="padding:2px 0;"><span class="stat-label">${s.type}</span><span class="stat-value">${s.count} <span style="color:var(--text-dim);font-size:11px;">(${Math.round(100 * s.count / ds.totalCreatures)}%)</span></span></div>`).join('')}`;
+    }
+  }
+  $('curveStats').innerHTML = `
+    <div class="stat"><span class="stat-label">平均 CMC（不含地）</span><span class="stat-value">${ds.avgCmc.toFixed(2)}</span></div>
+    <div class="stat"><span class="stat-label">中位 CMC</span><span class="stat-value">${ds.medianCmc}</span></div>
+    <div class="stat"><span class="stat-label">便宜（cmc 0-2）</span><span class="stat-value">${ds.cheapSpells} <span style="color:var(--text-dim);font-size:11px;">(${cheapPct}%)</span></span></div>
+    <div class="stat"><span class="stat-label">中費（cmc 3-4）</span><span class="stat-value">${ds.midSpells} <span style="color:var(--text-dim);font-size:11px;">(${midPct}%)</span></span></div>
+    <div class="stat"><span class="stat-label">高費（cmc 5+）</span><span class="stat-value">${ds.expensiveSpells} <span style="color:var(--text-dim);font-size:11px;">(${expPct}%)</span></span></div>
+    <div style="margin-top:8px;font-size:11px;line-height:1.5;">${curveAdvice}</div>
+    ${tribalHtml}
+  `;
+
+  // Functional composition
+  const funcRows = [
+    { tag: 'ramp',       label: 'Ramp（找地/加魔）' },
+    { tag: 'draw',       label: 'Card Draw' },
+    { tag: 'tutor',      label: 'Tutor（搜牌）' },
+    { tag: 'removal',    label: '單體 removal' },
+    { tag: 'boardwipe',  label: '群體 wipe' },
+    { tag: 'counter',    label: 'Counter' },
+    { tag: 'recursion',  label: '墳場回收' },
+    { tag: 'protection', label: 'Protection' },
+  ];
+  $('funcStats').innerHTML = funcRows.map(r => {
+    const n = ds.funcCounts[r.tag] || 0;
+    if (n === 0) return `<div class="stat"><span class="stat-label">${r.label}</span><span class="stat-value" style="color:var(--text-dim);">0</span></div>`;
+    const cards = (ds.funcCardLists[r.tag] || []).map(c =>
+      `<div style="padding:2px 0;"><strong>${c.qty}×</strong> <a href="${c.edhrecUrl}" target="_blank" data-card-name="${c.name}" style="color:var(--text);text-decoration:none;border-bottom:1px dotted var(--border);">${c.name}</a></div>`
+    ).join('');
+    return `<details style="padding:2px 0;">
+      <summary class="stat" style="cursor:pointer;list-style-position:outside;">
+        <span class="stat-label">${r.label}</span>
+        <span class="stat-value">${n}</span>
+      </summary>
+      <div style="margin-left:16px;font-size:12px;color:var(--text-dim);max-height:160px;overflow-y:auto;border-left:2px solid var(--border);padding:4px 0 4px 8px;">
+        ${cards}
+      </div>
+    </details>`;
+  }).join('');
+
+  // Mana sources
+  const ms = ds.funcCounts;
+  $('manaSrcStats').innerHTML = `
+    <div class="stat"><span class="stat-label">總 mana 來源</span><span class="stat-value">${ds.totalManaSources}</span></div>
+    <div class="stat"><span class="stat-label">建議地數</span><span class="stat-value" style="color:var(--text-dim);">${expectedLands}</span></div>
+    <hr style="border:0;border-top:1px solid var(--border);margin:6px 0;">
+    <div class="stat"><span class="stat-label">基本地</span><span class="stat-value">${ms.basic_land}</span></div>
+    <div class="stat"><span class="stat-label">Dual / 雙色地</span><span class="stat-value">${ms.dual_land}</span></div>
+    <div class="stat"><span class="stat-label">Fetchland</span><span class="stat-value">${ms.fetch_land}</span></div>
+    <div class="stat"><span class="stat-label">Utility 地</span><span class="stat-value">${ms.utility_land}</span></div>
+    <div class="stat"><span class="stat-label">其他非基本地</span><span class="stat-value">${ms.non_basic_land}</span></div>
+    <hr style="border:0;border-top:1px solid var(--border);margin:6px 0;">
+    <div class="stat"><span class="stat-label">Mana rock</span><span class="stat-value">${ms.mana_rock}</span></div>
+    <div class="stat"><span class="stat-label">Mana dork</span><span class="stat-value">${ms.mana_dork}</span></div>
+    <div class="stat"><span class="stat-label">Ramp 咒語</span><span class="stat-value">${ms.ramp}</span></div>
+    <div class="stat" style="border-top:1px solid var(--border);padding-top:6px;margin-top:4px;"><span class="stat-label">Ramp + Rocks 合計（建議 ${expectedRamp}）</span><span class="stat-value">${ds.rampPlusRocks}</span></div>
+  `;
+}
+
+function renderManabase(demand, sources) {
+  let rows = '';
+  for (const c of ['W', 'U', 'B', 'R', 'G']) {
+    const d = Math.round(demand[c] * 10) / 10;
+    const s = sources[c];
+    if (d === 0 && s === 0) continue;
+    const ratio = d > 0 ? s / d : Infinity;
+    const ok = d === 0 ? true : ratio >= 0.9;
+    const warn = !ok && ratio < 0.6;
+    const color = warn ? 'var(--danger)' : (ok ? 'var(--ok)' : 'var(--gold)');
+    rows += `<div class="stat">
+      <span class="stat-label"><span class="pip pip-${c}">${c}</span> ${COLOR_NAMES[c]}</span>
+      <span class="stat-value" style="color:${color};">
+        ${s} 源 / ${d} 需求
+        ${d > 0 ? `<span style="color:var(--text-dim);font-size:11px;">(${ratio.toFixed(2)}×)</span>` : ''}
+      </span>
+    </div>`;
+  }
+  $('manabaseStats').innerHTML = rows || '<div class="stat-label">無有色需求</div>';
+}
+
+let currentTableRows = [];
+let currentSort = { col: 'cmc', asc: true };
+
+function renderTable(rows) {
+  currentTableRows = rows;
+  sortAndRenderTable();
+}
+function sortAndRenderTable() {
+  const rows = currentTableRows.slice();
+  const { col, asc } = currentSort;
+  const dir = asc ? 1 : -1;
+  rows.sort((a, b) => {
+    if (a[col] < b[col]) return -1 * dir;
+    if (a[col] > b[col]) return 1 * dir;
+    return 0;
+  });
+  const html = rows.map(r => {
+    const pipsHtml = (r.manaCost.match(/\{([^}]+)\}/g) || []).map(t => {
+      const v = t.slice(1, -1);
+      if (/^\d+$/.test(v) || v === 'X') return `<span class="pip pip-N">${v}</span>`;
+      if (/^[WUBRGC]$/.test(v)) return `<span class="pip pip-${v}">${v}</span>`;
+      return `<span class="pip pip-X">${v}</span>`;
+    }).join('');
+    const imgAttr = r.imgUrl ? `data-card-img="${r.imgUrl}"` : `data-card-name="${r.name}"`;
+    return `<tr>
+      <td class="num">${r.qty}</td>
+      <td><a href="${r.url}" target="_blank" rel="noopener" ${imgAttr}>${r.name}</a></td>
+      <td class="num">${r.cmc}</td>
+      <td><span class="pips">${pipsHtml}</span></td>
+      <td><span class="type-badge">${r.type}</span></td>
+      <td style="color:var(--text-dim);">${r.rarity}</td>
+      <td class="ext-links"><a href="${r.edhrecUrl}" target="_blank" rel="noopener" title="EDHREC">EDH</a></td>
+    </tr>`;
+  }).join('');
+  $('cardsTableBody').innerHTML = html;
+}
+document.querySelectorAll('#cardsTable th[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.sort;
+    if (currentSort.col === col) currentSort.asc = !currentSort.asc;
+    else { currentSort.col = col; currentSort.asc = true; }
+    sortAndRenderTable();
+  });
+});
+
+/* ================== MAIN FLOW ================== */
+$('analyzeBtn').addEventListener('click', runAnalyze);
+$('clearCacheBtn').addEventListener('click', () => {
+  localStorage.removeItem(CACHE_KEY);
+  setStatus('已清除卡牌快取。', 'info');
+});
+
+async function runAnalyze() {
+  const activeTab = document.querySelector('.tab.active').dataset.panel;
+  $('analyzeBtn').disabled = true;
+  setStatus('解析牌組...', 'info');
+
+  try {
+    let mainList = [];
+    let commanderList = [];
+    let deckName = 'Deck';
+
+    if (activeTab === 'paste' || activeTab === 'drop') {
+      const parsed = parseDecklist($('pasteInput').value);
+      mainList = parsed.main;
+      commanderList = parsed.commander;
+    } else if (activeTab === 'url') {
+      const url = $('urlInput').value.trim();
+      const id = extractMoxfieldId(url);
+      if (!id) throw new Error('這不像 Moxfield URL');
+      const json = await fetchMoxfieldDeck(id);
+      const parsed = moxfieldToList(json);
+      mainList = parsed.main;
+      commanderList = parsed.commander;
+      deckName = parsed.name;
+    }
+
+    if (mainList.length === 0 && commanderList.length === 0) {
+      throw new Error('解析不到任何卡（格式：每行「N 卡名」）');
+    }
+
+    const totalCards = [...mainList, ...commanderList].reduce((s, x) => s + x.qty, 0);
+    setStatus(`解析到 ${mainList.length + commanderList.length} 種卡、共 ${totalCards} 張${commanderList.length ? `（含 ${commanderList.length} commander）` : ''}。查 Scryfall...`, 'info');
+
+    const [resolved, gameChangers] = await Promise.all([
+      resolveCards([...mainList, ...commanderList]),
+      fetchGameChangers(),
+    ]);
+    const analysis = analyzeDeck(mainList, resolved, commanderList, gameChangers);
+    if (analysis._raw.cards.length === 0 && analysis._raw.commanderCards.length === 0) {
+      throw new Error('沒有任何卡成功查到資料');
+    }
+
+    renderAll(analysis, deckName);
+
+    setStatus('跑 Mulligan 模擬 (10000 trials)...', 'info');
+    await new Promise(r => setTimeout(r, 20));
+    const bag = buildDeckBag(mainList, resolved); // commander not in library
+    const mulli = simulateMulligan(bag, 10000);
+
+    setStatus('跑 Goldfish 10-turn 模擬 (2000 trials)...', 'info');
+    await new Promise(r => setTimeout(r, 20));
+    const commanderCmc = analysis.commanderRows[0]?.card.cmc ?? 0;
+    const goldfish = goldfishSim(bag, commanderCmc, 10, 2000);
+    renderGoldfish(goldfish);
+
+    // Async enrichment: EDHREC theme identification + art-tag scan + flavor
+    // with inclusion overlay. The single commander JSON is reused by both the
+    // strategy panel (theme overlap + flavor re-ranking) and the EDHREC recs
+    // section below, so we stash it on `analysis` to avoid a second fetch.
+    if (analysis.isCommanderMode) {
+      analysis.strategyAnalysis.artTagsLoading = true;
+      renderStrategyPanel(analysis);
+      (async () => {
+        try {
+          const deckNameSet = new Set();
+          for (const row of analysis.tableRows) deckNameSet.add(row.name.toLowerCase().split(' //')[0].trim());
+          for (const row of analysis.commanderRows) deckNameSet.add(row.name.toLowerCase().split(' //')[0].trim());
+          const existingKeys = new Set(deckNameSet);
+
+          // Commander JSON (source of inclusion map + theme list)
+          const cmdSlugs = analysis.commanderRows.map(r => edhrecSlug(r.name)).sort();
+          const cmdSlug = cmdSlugs.join('-');
+          let edhJson = null;
+          let inclusionMap = null;
+          try {
+            edhJson = await fetchEdhrecCommander(cmdSlug);
+            analysis._edhJson = edhJson;
+            inclusionMap = buildEdhrecInclusionMap(edhJson);
+            analysis._inclusionMap = inclusionMap;
+          } catch (err) {
+            console.warn('EDHREC commander fetch failed; skipping theme/inclusion overlay', err);
+          }
+
+          // Theme overlap: for each EDHREC theme, pull its top cards and see
+          // how many the deck already plays. Best-matching theme = the deck's
+          // actual archetype (beats oracle-text keyword matching).
+          if (edhJson) {
+            const themes = extractEdhrecThemes(edhJson, cmdSlug).slice(0, 6);
+            const themeJsons = await Promise.all(themes.map(t =>
+              fetchEdhrecPath(t.href).catch(() => null)
+            ));
+            const scored = themes.map((t, i) => {
+              if (!themeJsons[i]) return null;
+              const topCards = extractTopCards(themeJsons[i], 30);
+              const overlap = scoreThemeOverlap(topCards, existingKeys);
+              const missing = topCards.filter(c => !existingKeys.has(c.key));
+              return { ...t, topCards, missing, overlap };
+            }).filter(Boolean);
+            scored.sort((a, b) => (b.overlap.weighted - a.overlap.weighted) || (b.overlap.count - a.overlap.count));
+            analysis.strategyAnalysis.edhrecThemesRanked = scored;
+          }
+
+          // Art tag scan (feeds flavor scoring)
+          const { summary: artSummary, index: artIndex } = await detectArtTags(deckNameSet);
+          analysis.strategyAnalysis.artTags = artSummary;
+
+          // Multi-dim flavor theme analysis (name + subtype + token + art + flavor_text)
+          const flavorResults = analyzeDeckFlavor(
+            analysis._raw.cards,
+            analysis._raw.commanderCards,
+            artIndex
+          ).slice(0, 3);
+
+          const flavorSuggestions = await Promise.all(flavorResults.map(fr =>
+            fetchFlavorSuggestions(fr.theme, analysis.ci, existingKeys, inclusionMap)
+          ));
+          flavorResults.forEach((fr, i) => { fr.suggestions = flavorSuggestions[i]; });
+          analysis.strategyAnalysis.flavorThemes = flavorResults;
+          analysis.strategyAnalysis.artTagsLoading = false;
+          renderStrategyPanel(analysis);
+        } catch (e) {
+          console.warn('flavor enrichment failed', e);
+          analysis.strategyAnalysis.artTagsLoading = false;
+          renderStrategyPanel(analysis);
+        }
+      })();
+    }
+
+    $('statLand2').textContent = (mulli.land2plus * 100).toFixed(1) + '%';
+    $('statKeep').textContent = (mulli.keepable * 100).toFixed(1) + '%';
+    if (analysis.isCommanderMode) {
+      // Commander 規則：第一次 mull 不算（free mulligan）
+      document.querySelector('#mulliganPanel .panel:nth-child(3) .big-stat-label').textContent =
+        'Free mull 後 keepable 機率（Commander）';
+      $('statMull6').textContent = (mulli.freeMullKeep * 100).toFixed(1) + '%';
+    } else {
+      document.querySelector('#mulliganPanel .panel:nth-child(3) .big-stat-label').textContent =
+        'London mull 到 6 仍卡手的機率';
+      $('statMull6').textContent = (mulli.mull6Stuck * 100).toFixed(1) + '%';
+    }
+    if (analysis.missing.length === 0) setStatus('', 'info');
+
+  } catch (e) {
+    console.error(e);
+    setStatus(`錯誤：${e.message}`, 'err');
+  } finally {
+    $('analyzeBtn').disabled = false;
+  }
+}
+
+/* ================== CARD HOVER PREVIEW ================== */
+(function setupCardHover() {
+  const preview = $('cardPreview');
+  const img = preview.querySelector('img');
+  const W = 240, H = 334, PAD = 14;
+  let currentTarget = null;
+
+  function move(e) {
+    let x = e.clientX + PAD, y = e.clientY + PAD;
+    if (x + W > window.innerWidth) x = e.clientX - W - PAD;
+    if (y + H > window.innerHeight - 4) y = window.innerHeight - H - 4;
+    if (y < 0) y = 4;
+    preview.style.left = x + 'px';
+    preview.style.top = y + 'px';
+  }
+
+  document.addEventListener('mouseover', (e) => {
+    const t = e.target.closest('[data-card-img], [data-card-name]');
+    if (!t || t === currentTarget) return;
+    currentTarget = t;
+    const imgUrl = t.dataset.cardImg
+      || `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(t.dataset.cardName || '')}&format=image&version=normal`;
+    img.src = imgUrl;
+    preview.style.display = 'block';
+    move(e);
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (preview.style.display !== 'none') move(e);
+  });
+  document.addEventListener('mouseout', (e) => {
+    const t = e.target.closest('[data-card-img], [data-card-name]');
+    if (!t) return;
+    // Only hide when leaving to something *not* another card target
+    const rel = e.relatedTarget && e.relatedTarget.closest?.('[data-card-img], [data-card-name]');
+    if (rel) return;
+    currentTarget = null;
+    preview.style.display = 'none';
+  });
+})();
+
+/* ================== "顯示全部 / 收起" TOGGLE ================== */
+// Delegated handler for every .mv-more button rendered by renderSuggestionCards.
+// Toggles the preceding .mv-sugg-list's expanded state and swaps the label.
+document.addEventListener('click', (e) => {
+  const btn = e.target;
+  if (!(btn instanceof HTMLElement) || !btn.classList.contains('mv-more')) return;
+  const list = btn.previousElementSibling;
+  if (!list || !list.classList.contains('mv-sugg-list')) return;
+  list.classList.toggle('mv-expanded');
+  const expanded = list.classList.contains('mv-expanded');
+  btn.textContent = expanded ? btn.dataset.less : btn.dataset.more;
+});
+
+/* ================== SAMPLE HELPER ================== */
+// Auto-focus paste box on load
+$('pasteInput').focus();
+</script>
+</body>
+</html>
